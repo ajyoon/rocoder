@@ -1,0 +1,20 @@
+[package]
+name = "yoonstretch"
+version = "0.1.0"
+authors = ["Andrew Yoon <andrew@nothing-to-say.org>"]
+edition = "2018"
+
+[lib]
+name = "yoonstretch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "yoonstretch"
+path = "src/main.rs"
+
+[dependencies]
+rustfft = "*"
+num-traits = "*"
+hound = "*"
+rand = "0.7"
+stopwatch = "0.0.7"
