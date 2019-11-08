@@ -1,3 +1,4 @@
+use crate::crossfade;
 use crate::fft::ReFFT;
 use crate::windows;
 use std::cmp;
@@ -5,9 +6,9 @@ use std::time::Duration;
 use stopwatch::Stopwatch;
 
 pub fn stretch(sample_rate: usize, samples: &[f32], factor: f32, window: Vec<f32>) -> Vec<f32> {
-    let amp_correction_envelope = derive_amp_correction_envelope(&window);
     let window_size = window.len();
     let half_window_size = window_size / 2;
+    let amp_correction_envelope = crossfade::hanning_crossfade_compensation(half_window_size);
     let re_fft = ReFFT::new(window);
     let sample_step_size = (window_size as f32 / (factor * 2.0)) as usize;
     let mut previous_fft_result = vec![0.0; window_size];
@@ -26,6 +27,7 @@ pub fn stretch(sample_rate: usize, samples: &[f32], factor: f32, window: Vec<f32
                 (previous_fft_result.get(half_window_size + i).unwrap()
                     + fft_result.get(i).unwrap())
                     * amp_correction_envelope[i]
+                    * (factor / 2.0) // TODO volume correction here is just an approximation
             })
             .collect();
         stats.collect(step_output.len());
@@ -36,6 +38,7 @@ pub fn stretch(sample_rate: usize, samples: &[f32], factor: f32, window: Vec<f32
     output
 }
 
+/// doesnt work
 fn derive_amp_correction_envelope(window: &[f32]) -> Vec<f32> {
     let half_window_size = window.len() / 2;
     let window_overlap: Vec<f32> = (0..half_window_size)

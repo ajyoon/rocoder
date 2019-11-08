@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate log;
 
+mod crossfade;
 mod test_utils;
 
 pub mod fft;
