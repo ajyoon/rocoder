@@ -32,7 +32,7 @@ pub async fn stretch(
                 (previous_fft_result.get(half_window_size + i).unwrap()
                     + fft_result.get(i).unwrap())
                     * amp_correction_envelope[i]
-                    * (factor / 2.0) // TODO volume correction here is just an approximation
+                    * factor // TODO volume correction here is just an approximation
             })
             .collect();
         stats.collect(step_output.len());

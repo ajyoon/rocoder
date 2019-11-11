@@ -22,3 +22,4 @@ log = "*"
 simplelog = "*"
 chrono = "*"
 futures = "*"  # needed just for join_all - could reimplement to lower compile time
+structopt = "*"
