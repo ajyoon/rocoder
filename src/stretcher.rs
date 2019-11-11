@@ -5,7 +5,12 @@ use std::cmp;
 use std::time::Duration;
 use stopwatch::Stopwatch;
 
-pub fn stretch(sample_rate: usize, samples: &[f32], factor: f32, window: Vec<f32>) -> Vec<f32> {
+pub async fn stretch(
+    sample_rate: u32,
+    samples: Vec<f32>,
+    factor: f32,
+    window: Vec<f32>,
+) -> Vec<f32> {
     let window_size = window.len();
     let half_window_size = window_size / 2;
     let amp_correction_envelope = crossfade::hanning_crossfade_compensation(half_window_size);
@@ -48,7 +53,7 @@ fn derive_amp_correction_envelope(window: &[f32]) -> Vec<f32> {
 }
 
 struct Stats {
-    sample_rate: usize,
+    sample_rate: u32,
     report_interval: Duration,
     total_samples: Option<usize>,
     interval_timer: Stopwatch,
@@ -57,7 +62,7 @@ struct Stats {
 }
 
 impl Stats {
-    fn new(sample_rate: usize, report_interval: Duration, total_samples: Option<usize>) -> Stats {
+    fn new(sample_rate: u32, report_interval: Duration, total_samples: Option<usize>) -> Stats {
         Stats {
             sample_rate,
             report_interval,
@@ -88,14 +93,14 @@ impl Stats {
     fn report(&mut self) {
         let elapsed_ms = self.interval_timer.elapsed_ms();
         let samples_per_second =
-            (self.samples_generated_in_interval as f32 / (elapsed_ms as f32 / 1000.0)) as usize;
+            (self.samples_generated_in_interval as f32 / (elapsed_ms as f32 / 1000.0)) as u32;
         let realtime_factor = samples_per_second / self.sample_rate;
         let progress_percent = self
             .total_samples
             .map(|t| (self.total_samples_generated as f32 / t as f32) * 100.0);
         let approx_secs_remaining = self
             .total_samples
-            .map(|t| (t - self.total_samples_generated) / samples_per_second);
+            .map(|t| (t - self.total_samples_generated) / samples_per_second as usize);
 
         let speed_msg = format!(
             "{}k samples / sec ({:.1}x)",
