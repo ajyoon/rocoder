@@ -10,6 +10,7 @@ pub async fn stretch(
     samples: Vec<f32>,
     factor: f32,
     window: Vec<f32>,
+    channel_name: String,
 ) -> Vec<f32> {
     let window_size = window.len();
     let half_window_size = window_size / 2;
@@ -22,6 +23,7 @@ pub async fn stretch(
         sample_rate,
         Duration::from_secs(1),
         Some((samples.len() as f32 * factor) as usize),
+        channel_name,
     );
 
     for start_pos in (0..samples.len()).step_by(sample_step_size) {
@@ -59,14 +61,21 @@ struct Stats {
     interval_timer: Stopwatch,
     samples_generated_in_interval: usize,
     total_samples_generated: usize,
+    channel_name: String,
 }
 
 impl Stats {
-    fn new(sample_rate: u32, report_interval: Duration, total_samples: Option<usize>) -> Stats {
+    fn new(
+        sample_rate: u32,
+        report_interval: Duration,
+        total_samples: Option<usize>,
+        channel_name: String,
+    ) -> Stats {
         Stats {
             sample_rate,
             report_interval,
             total_samples,
+            channel_name,
             interval_timer: Stopwatch::new(),
             samples_generated_in_interval: 0,
             total_samples_generated: 0,
@@ -115,6 +124,9 @@ impl Stats {
             )
         });
 
-        println!("{}{}", speed_msg, progress_msg);
+        println!(
+            "Channel {}: {}{}",
+            self.channel_name, speed_msg, progress_msg
+        );
     }
 }

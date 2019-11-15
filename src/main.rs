@@ -3,6 +3,7 @@ use yoonstretch::runtime_setup;
 use yoonstretch::stretcher;
 use yoonstretch::windows;
 
+use async_std;
 use futures::executor::block_on;
 use futures::future;
 use std::error::Error;
@@ -31,6 +32,10 @@ struct Opt {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    block_on(async_main())
+}
+
+async fn async_main() -> Result<(), Box<dyn Error>> {
     runtime_setup::setup_logging();
     let opt = Opt::from_args();
 
@@ -40,19 +45,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_channels: Vec<Vec<f32>> = wav_reader.read_into_channels();
 
     let window = windows::hanning(opt.window_len);
-    let channel_futures: Vec<_> = input_channels
-        .into_iter()
-        .map(|channel_samples| {
-            stretcher::stretch(
-                wav_spec.sample_rate,
-                channel_samples,
-                opt.factor,
-                window.clone(),
-            )
-        })
-        .collect();
-
-    let output_channels: Vec<Vec<f32>> = block_on(future::join_all(channel_futures));
+    let output_channels: Vec<Vec<f32>> = future::join_all(
+        input_channels
+            .into_iter()
+            .enumerate()
+            .map(|(i, channel_samples)| {
+                stretcher::stretch(
+                    wav_spec.sample_rate,
+                    channel_samples,
+                    opt.factor,
+                    window.clone(),
+                    i.to_string(),
+                )
+            })
+            .map(async_std::task::spawn),
+    )
+    .await;
 
     let mut writer = WavWriter::open(opt.output.to_str().unwrap(), wav_spec).unwrap();
     writer.write_into_channels(output_channels);
