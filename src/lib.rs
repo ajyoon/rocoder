@@ -1,6 +1,5 @@
 #![feature(test)]
 
-#[macro_use]
 extern crate log;
 
 mod crossfade;

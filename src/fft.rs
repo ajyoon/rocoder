@@ -5,8 +5,6 @@ use rustfft::{FFTplanner, FFT};
 use std::f32;
 use std::sync::Arc;
 
-use hound;
-
 const TWO_PI: f32 = f32::consts::PI;
 
 pub struct ReFFT {

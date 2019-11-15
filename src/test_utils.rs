@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 const F32_EPSILON: f32 = 1.0e-4;
 
+#[allow(unused)]
 pub fn assert_almost_eq_by_element(left: Vec<f32>, right: Vec<f32>) {
     if left.len() != right.len() {
         panic!(
@@ -23,7 +24,7 @@ pub fn assert_almost_eq_by_element(left: Vec<f32>, right: Vec<f32>) {
     }
 }
 
-#[allow(dead_code)]
+#[allow(unused)]
 pub fn assert_eq_by_element<T>(left: Vec<T>, right: Vec<T>)
 where
     T: PartialEq + Debug,
@@ -49,6 +50,7 @@ where
     }
 }
 
+#[allow(unused)]
 pub fn assert_almost_eq(left: f32, right: f32) {
     assert!(
         f32_almost_eq(left, right),
@@ -58,6 +60,7 @@ pub fn assert_almost_eq(left: f32, right: f32) {
     );
 }
 
+#[allow(unused)]
 fn f32_almost_eq(left: f32, right: f32) -> bool {
     (left - right).abs() < F32_EPSILON
 }

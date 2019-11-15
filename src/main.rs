@@ -7,10 +7,6 @@ use async_std;
 use futures::executor::block_on;
 use futures::future;
 use std::error::Error;
-use std::fs;
-use std::future::Future;
-use std::io::{self, Read, Seek};
-use std::marker::{self, PhantomData, Sized};
 
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -63,7 +59,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
     .await;
 
     let mut writer = WavWriter::open(opt.output.to_str().unwrap(), wav_spec).unwrap();
-    writer.write_into_channels(output_channels);
+    writer.write_into_channels(output_channels)?;
     writer.finalize().unwrap();
     Ok(())
 }

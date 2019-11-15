@@ -1,11 +1,11 @@
 use hound;
-use num_traits::{Float, Num, PrimInt};
+use num_traits::Num;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::io::{self, Read, Seek, Write};
 use std::iter::FromIterator;
-use std::marker::{self, PhantomData, Sized};
+use std::marker::{PhantomData, Sized};
 use std::mem;
 
 #[derive(Copy, Clone, Debug)]
@@ -200,7 +200,7 @@ where
     _phantom: PhantomData<T>,
 }
 
-trait HoundSampleFormat<T> {
+pub trait HoundSampleFormat<T> {
     fn hound_sample_format() -> hound::SampleFormat;
 }
 

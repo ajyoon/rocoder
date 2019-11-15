@@ -1,6 +1,5 @@
 use crate::crossfade;
 use crate::fft::ReFFT;
-use crate::windows;
 use std::cmp;
 use std::time::Duration;
 use stopwatch::Stopwatch;
@@ -43,15 +42,6 @@ pub async fn stretch(
     }
 
     output
-}
-
-/// doesnt work
-fn derive_amp_correction_envelope(window: &[f32]) -> Vec<f32> {
-    let half_window_size = window.len() / 2;
-    let window_overlap: Vec<f32> = (0..half_window_size)
-        .map(|i| window[i] + window[i + half_window_size])
-        .collect();
-    windows::inverse(&window_overlap)
 }
 
 struct Stats {
