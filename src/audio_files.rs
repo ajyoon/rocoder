@@ -1,4 +1,5 @@
 use hound;
+use minimp3;
 use num_traits::Num;
 use std::collections::HashSet;
 use std::error::Error;
@@ -29,17 +30,20 @@ where
         Self: Sized;
 
     /// Duration in samples, regardless of number of channels
-    fn duration(&self) -> u32;
+    fn duration(&self) -> Option<u32>;
 
     /// Total number in samples. This will be `duration * channels`.
-    fn num_samples(&self) -> u32;
+    fn num_samples(&self) -> Option<u32>;
 
     fn spec(&self) -> AudioSpec;
 
     fn read_into_channels(&mut self) -> Vec<Vec<<Self as std::iter::Iterator>::Item>> {
         let num_channels = self.spec().channels as usize;
         let mut channels: Vec<Vec<<Self as std::iter::Iterator>::Item>> = (0..num_channels)
-            .map(|_| Vec::with_capacity(self.duration() as usize))
+            .map(|_| match self.duration() {
+                Some(dur) => Vec::with_capacity(dur as usize),
+                None => Vec::new(),
+            })
             .collect();
 
         for (i, sample) in self.enumerate() {
@@ -165,12 +169,12 @@ where
         })
     }
 
-    fn duration(&self) -> u32 {
-        self.duration
+    fn duration(&self) -> Option<u32> {
+        Some(self.duration)
     }
 
-    fn num_samples(&self) -> u32 {
-        self.num_samples
+    fn num_samples(&self) -> Option<u32> {
+        Some(self.num_samples)
     }
 
     fn spec(&self) -> AudioSpec {
@@ -269,5 +273,111 @@ where
         let file = fs::File::create(path)?;
         let buf_writer = io::BufWriter::new(file);
         WavWriter::new(buf_writer, spec)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+pub struct Mp3Reader<T, R> {
+    pub spec: AudioSpec,
+    underlier: minimp3::Decoder<R>,
+    buffer: Vec<i16>,
+    buffer_i: usize,
+    _phantom: PhantomData<T>,
+}
+
+pub trait Sample {
+    fn from_i16(n: i16) -> Self;
+}
+
+impl Sample for f32 {
+    fn from_i16(n: i16) -> Self {
+        n as f32 / i16::max_value() as f32
+    }
+}
+
+impl<T, R> AudioReader<T, R> for Mp3Reader<T, R>
+where
+    T: Sized + Num + Sample,
+    R: Read + Seek,
+{
+    fn new(reader: R) -> Result<Self, Box<dyn Error>>
+    where
+        Self: Sized,
+    {
+        let mut underlier = minimp3::Decoder::new(reader);
+
+        let first_frame = underlier.next_frame()?;
+        let spec = AudioSpec {
+            channels: first_frame.channels as u16,
+            sample_rate: first_frame.sample_rate as u32,
+        };
+        let buffer = first_frame.data;
+        let buffer_i = 0;
+
+        Ok(Mp3Reader {
+            spec,
+            underlier,
+            buffer,
+            buffer_i,
+            _phantom: PhantomData,
+        })
+    }
+
+    fn duration(&self) -> Option<u32> {
+        None
+    }
+
+    fn num_samples(&self) -> Option<u32> {
+        None
+    }
+
+    fn spec(&self) -> AudioSpec {
+        self.spec
+    }
+}
+
+impl<T> Mp3Reader<T, io::BufReader<fs::File>>
+where
+    T: Sized + Num + Sample,
+{
+    pub fn open(path: &str) -> Result<Self, Box<dyn Error>> {
+        let file = fs::File::open(path)?;
+        let reader = io::BufReader::new(file);
+        Mp3Reader::new(reader)
+    }
+}
+
+impl<T, R> Mp3Reader<T, R>
+where
+    T: Sized + Num + Sample,
+    R: Read + Seek,
+{
+    fn next_i16_sample(&mut self) -> Option<i16> {
+        if self.buffer_i < self.buffer.len() {
+            let result = Some(unsafe { *self.buffer.get_unchecked(self.buffer_i) });
+            self.buffer_i += 1;
+            result
+        } else {
+            let next_frame = self.underlier.next_frame().ok()?;
+            debug_assert!(next_frame.channels as u16 == self.spec.channels);
+            debug_assert!(next_frame.sample_rate as u32 == self.spec.sample_rate);
+            debug_assert!(next_frame.data.len() > 0);
+            self.buffer_i = 1;
+            self.buffer = next_frame.data;
+            Some(unsafe { *self.buffer.get_unchecked(0) })
+        }
+    }
+}
+
+impl<T, R> Iterator for Mp3Reader<T, R>
+where
+    T: Sized + Num + Sample,
+    R: Read + Seek,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_i16_sample().map(T::from_i16)
     }
 }

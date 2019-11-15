@@ -1,4 +1,4 @@
-use yoonstretch::audio_files::{AudioReader, AudioWriter, WavReader, WavWriter};
+use yoonstretch::audio_files::{AudioReader, AudioWriter, Mp3Reader, WavReader, WavWriter};
 use yoonstretch::runtime_setup;
 use yoonstretch::stretcher;
 use yoonstretch::windows;
@@ -35,10 +35,10 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
     runtime_setup::setup_logging();
     let opt = Opt::from_args();
 
-    let mut wav_reader = WavReader::open(opt.input.to_str().unwrap()).unwrap();
-    let wav_spec = wav_reader.spec();
+    let mut reader = Mp3Reader::open(opt.input.to_str().unwrap()).unwrap();
+    let spec = reader.spec();
 
-    let input_channels: Vec<Vec<f32>> = wav_reader.read_into_channels();
+    let input_channels: Vec<Vec<f32>> = reader.read_into_channels();
 
     let window = windows::hanning(opt.window_len);
     let output_channels: Vec<Vec<f32>> = future::join_all(
@@ -47,7 +47,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
             .enumerate()
             .map(|(i, channel_samples)| {
                 stretcher::stretch(
-                    wav_spec.sample_rate,
+                    spec.sample_rate,
                     channel_samples,
                     opt.factor,
                     window.clone(),
@@ -58,7 +58,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
     )
     .await;
 
-    let mut writer = WavWriter::open(opt.output.to_str().unwrap(), wav_spec).unwrap();
+    let mut writer = WavWriter::open(opt.output.to_str().unwrap(), spec).unwrap();
     writer.write_into_channels(output_channels)?;
     writer.finalize().unwrap();
     Ok(())
