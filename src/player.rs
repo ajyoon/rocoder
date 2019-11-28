@@ -3,7 +3,6 @@ use cpal::{
     traits::{DeviceTrait, EventLoopTrait, HostTrait},
     Format, SampleFormat, SampleRate, StreamData, UnknownTypeOutputBuffer,
 };
-use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -57,19 +56,29 @@ pub fn play_audio(audio_spec: &AudioSpec, mut audio_channels: Vec<Vec<f32>>) {
             };
             let mut playback_pos = cloned_playback_position.lock().unwrap();
             let samples_needed = buffer.len() / format.channels as usize;
-            for (audio_channel_buffer, channel_output_buffer) in audio_channels
-                .iter_mut()
-                .zip(buffer.chunks_mut(samples_needed))
-            {
-                let bytes = samples_needed * sample_width;
-                let src_ptr =
-                    (&audio_channel_buffer[*playback_pos..]).as_ptr() as *mut libc::c_void;
-                let write_ptr = channel_output_buffer.as_ptr() as *mut libc::c_void;
-                unsafe {
-                    libc::memcpy(write_ptr, src_ptr, bytes);
+
+            for buffer_interleaved_samples in buffer.chunks_mut(format.channels as usize) {
+                for (dest, src_channel) in
+                    buffer_interleaved_samples.iter_mut().zip(&audio_channels)
+                {
+                    *dest = unsafe { *src_channel.get_unchecked(*playback_pos) };
                 }
+                *playback_pos += 1;
             }
-            *playback_pos += buffer.len() / format.channels as usize;
+
+            // for (audio_channel_buffer, channel_output_buffer) in audio_channels
+            //     .iter_mut()
+            //     .zip(buffer.chunks_mut(format.channels as usize))
+            // {
+
+            //     // let bytes = samples_needed * sample_width;
+            //     // let src_ptr =
+            //     //     (&audio_channel_buffer[*playback_pos..]).as_ptr() as *mut libc::c_void;
+            //     // let write_ptr = channel_output_buffer.as_ptr() as *mut libc::c_void;
+            //     // unsafe {
+            //     //     libc::memcpy(write_ptr, src_ptr, bytes);
+            //     // }
+            // }
         });
     });
 

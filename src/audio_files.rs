@@ -73,8 +73,6 @@ where
         debug_assert!(HashSet::<usize>::from_iter(channels.iter().map(|c| c.len())).len() == 1);
         let samples_per_channel = channels.get(0).unwrap().len();
 
-        println!("writing {} channels", channels.len());
-
         for i in 0..samples_per_channel {
             for channel in &channels {
                 unsafe {

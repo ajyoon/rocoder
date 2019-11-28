@@ -60,6 +60,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
     let audio = load_audio(&opt);
     let spec = audio.spec;
     let window = windows::hanning(opt.window_len);
+
     let output_channels: Vec<Vec<f32>> = future::join_all(
         audio
             .data
