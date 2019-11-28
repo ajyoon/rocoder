@@ -33,7 +33,6 @@ pub fn play_audio(audio_spec: &AudioSpec, mut audio_channels: Vec<Vec<f32>>) {
         sample_rate: SampleRate(audio_spec.sample_rate),
         data_type: SampleFormat::F32,
     };
-    let sample_width = format.data_type.sample_size();
 
     let output_stream_id = event_loop
         .build_output_stream(&output_device, &format)
@@ -55,7 +54,6 @@ pub fn play_audio(audio_spec: &AudioSpec, mut audio_channels: Vec<Vec<f32>>) {
                 }
             };
             let mut playback_pos = cloned_playback_position.lock().unwrap();
-            let samples_needed = buffer.len() / format.channels as usize;
 
             for buffer_interleaved_samples in buffer.chunks_mut(format.channels as usize) {
                 for (dest, src_channel) in
@@ -65,20 +63,6 @@ pub fn play_audio(audio_spec: &AudioSpec, mut audio_channels: Vec<Vec<f32>>) {
                 }
                 *playback_pos += 1;
             }
-
-            // for (audio_channel_buffer, channel_output_buffer) in audio_channels
-            //     .iter_mut()
-            //     .zip(buffer.chunks_mut(format.channels as usize))
-            // {
-
-            //     // let bytes = samples_needed * sample_width;
-            //     // let src_ptr =
-            //     //     (&audio_channel_buffer[*playback_pos..]).as_ptr() as *mut libc::c_void;
-            //     // let write_ptr = channel_output_buffer.as_ptr() as *mut libc::c_void;
-            //     // unsafe {
-            //     //     libc::memcpy(write_ptr, src_ptr, bytes);
-            //     // }
-            // }
         });
     });
 
