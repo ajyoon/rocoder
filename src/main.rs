@@ -1,6 +1,7 @@
 use yoonstretch::audio_files::{
     AudioReader, AudioSpec, AudioWriter, Mp3Reader, WavReader, WavWriter,
 };
+use yoonstretch::player;
 use yoonstretch::runtime_setup;
 use yoonstretch::stretcher;
 use yoonstretch::windows;
@@ -25,9 +26,9 @@ struct Opt {
 
     #[structopt(short = "i", long = "input", parse(from_os_str))]
     input: Option<PathBuf>,
-    //input: PathBuf,
+
     #[structopt(short = "o", long = "output", parse(from_os_str))]
-    output: PathBuf,
+    output: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -57,10 +58,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
             .map(async_std::task::spawn),
     )
     .await;
-
-    let mut writer = WavWriter::open(opt.output.to_str().unwrap(), spec).unwrap();
-    writer.write_into_channels(output_channels)?;
-    writer.finalize().unwrap();
+    handle_result(&opt, &spec, output_channels);
     Ok(())
 }
 
@@ -75,4 +73,22 @@ fn load_channels(opt: &Opt) -> (AudioSpec, Vec<Vec<f32>>) {
             (reader.spec(), reader.read_into_channels())
         }
     }
+}
+
+fn handle_result(
+    opt: &Opt,
+    spec: &AudioSpec,
+    output_channels: Vec<Vec<f32>>,
+) -> Result<(), Box<dyn Error>> {
+    match &opt.output {
+        Some(path) => {
+            let mut writer = WavWriter::open(path.to_str().unwrap(), *spec).unwrap();
+            writer.write_into_channels(output_channels)?;
+            writer.finalize().unwrap();
+        }
+        None => {
+            player::play_audio(spec, output_channels);
+        }
+    }
+    Ok(())
 }

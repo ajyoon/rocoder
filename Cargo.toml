@@ -25,3 +25,5 @@ futures = "*"  # needed just for join_all - could reimplement to lower compile t
 structopt = "*"
 async-std = "*"
 minimp3 = "*"
+cpal = "*"
+libc = "*"

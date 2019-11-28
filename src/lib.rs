@@ -8,6 +8,7 @@ mod test_utils;
 pub mod audio_files;
 pub mod fft;
 pub mod math;
+pub mod player;
 pub mod runtime_setup;
 pub mod stretcher;
 pub mod windows;
