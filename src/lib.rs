@@ -5,7 +5,9 @@ extern crate log;
 mod crossfade;
 mod test_utils;
 
+pub mod audio;
 pub mod audio_files;
+pub mod duration_parser;
 pub mod fft;
 pub mod math;
 pub mod player;

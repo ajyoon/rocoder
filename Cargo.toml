@@ -27,3 +27,7 @@ async-std = "*"
 minimp3 = "*"
 cpal = "*"
 libc = "*"
+custom_error = "*"
+
+[dev-dependencies]
+test-case = "0.3.3"

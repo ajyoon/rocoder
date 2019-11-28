@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::audio_files::AudioSpec;
+use crate::audio::AudioSpec;
 
 /// Simple audio playback
 
