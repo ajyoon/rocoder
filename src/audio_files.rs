@@ -20,7 +20,7 @@ pub struct AudioSpec {
 pub trait AudioReader<T, R>: Iterator
 where
     T: Sized + Num,
-    R: Read + Seek,
+    R: Read,
 {
     /// Create a new decoding reader from an existing data reader.
     ///
@@ -113,11 +113,15 @@ impl<T, R> WavReader<T, R> {
     ) -> Result<(), Box<dyn Error>>
     where
         T: Sized + Num + hound::Sample,
-        R: Read + Seek,
+        R: Read,
     {
         let first_sample_returned = hound_wav_reader.samples::<T>().next();
-        // reset
-        let _ = hound_wav_reader.seek(0);
+
+        // I want to reset here so we don't just lose the first sample,
+        // but without managing a slow buffer or requiring the Seek trait
+        // (which otherwise is not necessary) we can't...so let's just drop it
+        // let _ = hound_wav_reader.seek(0);
+
         if let Some(result) = first_sample_returned {
             // urgh.. trying to unpack option of hound result to dyn result...
             // definitely a better way to do this but I can't find it
@@ -143,7 +147,7 @@ impl<T, R> WavReader<T, R> {
 impl<T, R> AudioReader<T, R> for WavReader<T, R>
 where
     T: Sized + Num + hound::Sample,
-    R: Read + Seek,
+    R: Read,
 {
     fn new(reader: R) -> Result<Self, Box<dyn Error>>
     where
@@ -299,7 +303,7 @@ impl Sample for f32 {
 impl<T, R> AudioReader<T, R> for Mp3Reader<T, R>
 where
     T: Sized + Num + Sample,
-    R: Read + Seek,
+    R: Read,
 {
     fn new(reader: R) -> Result<Self, Box<dyn Error>>
     where
@@ -351,7 +355,7 @@ where
 impl<T, R> Mp3Reader<T, R>
 where
     T: Sized + Num + Sample,
-    R: Read + Seek,
+    R: Read,
 {
     fn next_i16_sample(&mut self) -> Option<i16> {
         if self.buffer_i < self.buffer.len() {
@@ -373,7 +377,7 @@ where
 impl<T, R> Iterator for Mp3Reader<T, R>
 where
     T: Sized + Num + Sample,
-    R: Read + Seek,
+    R: Read,
 {
     type Item = T;
 
