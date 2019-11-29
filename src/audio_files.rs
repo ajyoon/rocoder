@@ -41,7 +41,9 @@ where
             .collect();
 
         for (i, sample) in self.enumerate() {
-            channels[i % num_channels].push(sample);
+            // Wav streams are interleaved, so we separate them here
+            let sample_channel = i % num_channels;
+            channels[sample_channel].push(sample);
         }
 
         Audio {
@@ -126,6 +128,13 @@ impl<T, R> WavReader<T, R> {
                 return Err(Box::from(result.err().unwrap()));
             }
         }
+
+        // Since we tested one sample, we need to discard `channels - 1` samples as well
+        // to make sure we keep the interleaved channels oriented correctly.
+        for _ in 0..hound_wav_reader.spec().channels - 1 {
+            hound_wav_reader.samples::<T>().next();
+        }
+
         Ok(())
     }
 

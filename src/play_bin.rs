@@ -21,27 +21,11 @@ use structopt::{clap::AppSettings, StructOpt};
 #[derive(Debug, StructOpt)]
 #[structopt(name = "yoonstretch", setting = AppSettings::AllowNegativeNumbers)]
 struct Opt {
-    #[structopt(short = "w", long = "window", default_value = "32768")]
-    window_len: usize,
-
-    #[structopt(short = "f", long = "factor")]
-    factor: f32,
-
-    #[structopt(short = "p", long = "pitch_multiple", default_value = "1")]
-    pitch_multiple: i8,
-
     #[structopt(short = "a", long = "amplitude", default_value = "1")]
     amplitude: f32,
 
     #[structopt(short = "i", long = "input", parse(from_os_str))]
     input: Option<PathBuf>,
-
-    #[structopt(
-        short = "r",
-        long = "rotate",
-        help = "Rotate the input audio channels. With stereo audio this means swapping the left and right channels"
-    )]
-    rotate: bool,
 
     #[structopt(
         short = "s",
@@ -58,43 +42,14 @@ struct Opt {
 	parse(try_from_str = duration_parser::parse_duration)
     )]
     duration: Option<Duration>,
-
-    #[structopt(short = "o", long = "output", parse(from_os_str))]
-    output: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    block_on(async_main())
-}
-
-async fn async_main() -> Result<(), Box<dyn Error>> {
     runtime_setup::setup_logging();
     let opt = Opt::from_args();
-
-    let audio = load_audio(&opt);
-    let spec = audio.spec;
-    let window = windows::hanning(opt.window_len);
-
-    let output_channels: Vec<Vec<f32>> = future::join_all(
-        audio
-            .data
-            .into_iter()
-            .enumerate()
-            .map(|(i, channel_samples)| {
-                stretcher::stretch(
-                    spec.sample_rate,
-                    channel_samples,
-                    opt.factor,
-                    opt.amplitude,
-                    opt.pitch_multiple,
-                    window.clone(),
-                    i.to_string(),
-                )
-            })
-            .map(async_std::task::spawn),
-    )
-    .await;
-    handle_result(&opt, &spec, output_channels);
+    let mut audio: Audio<f32> = load_audio(&opt);
+    audio.amplify_in_place(opt.amplitude);
+    player::play_audio(&audio.spec, audio.data);
     Ok(())
 }
 
@@ -117,27 +72,5 @@ where
         audio.clip_in_place(opt.start, opt.duration);
     }
 
-    if opt.rotate {
-        audio.rotate_channels();
-    }
-
     audio
-}
-
-fn handle_result(
-    opt: &Opt,
-    spec: &AudioSpec,
-    output_channels: Vec<Vec<f32>>,
-) -> Result<(), Box<dyn Error>> {
-    match &opt.output {
-        Some(path) => {
-            let mut writer = WavWriter::open(path.to_str().unwrap(), *spec).unwrap();
-            writer.write_into_channels(output_channels)?;
-            writer.finalize().unwrap();
-        }
-        None => {
-            player::play_audio(spec, output_channels);
-        }
-    }
-    Ok(())
 }
