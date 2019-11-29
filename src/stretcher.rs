@@ -9,21 +9,23 @@ pub async fn stretch(
     sample_rate: u32,
     samples: Vec<f32>,
     factor: f32,
+    amplitude: f32,
     pitch_multiple: i8,
     window: Vec<f32>,
     channel_name: String,
 ) -> Vec<f32> {
     debug_assert!(pitch_multiple != 0);
     let pitch_shifted_factor = if pitch_multiple < 0 {
-        factor / 2f32.powi(pitch_multiple.abs() as i32 - 1)
+        factor / pitch_multiple.abs() as f32
     } else {
-        factor * 2f32.powi(pitch_multiple.abs() as i32 - 1)
+        factor * pitch_multiple.abs() as f32
     };
 
     let stretched = stretch_without_pitch_shift(
         sample_rate,
         samples,
         pitch_shifted_factor,
+        amplitude,
         window,
         channel_name,
     )
@@ -39,6 +41,7 @@ async fn stretch_without_pitch_shift(
     sample_rate: u32,
     samples: Vec<f32>,
     factor: f32,
+    amplitude: f32,
     window: Vec<f32>,
     channel_name: String,
 ) -> Vec<f32> {
@@ -64,7 +67,8 @@ async fn stretch_without_pitch_shift(
                 (previous_fft_result.get(half_window_size + i).unwrap()
                     + fft_result.get(i).unwrap())
                     * amp_correction_envelope[i]
-                    * (factor / 4.0) // TODO volume correction here is just an approximation
+                    * (factor / 4.0)  // TODO volume correction here is just an approximation
+		    * amplitude
             })
             .collect();
         stats.collect(step_output.len());

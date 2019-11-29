@@ -29,6 +29,9 @@ struct Opt {
     #[structopt(short = "p", long = "pitch_multiple", default_value = "1")]
     pitch_multiple: i8,
 
+    #[structopt(short = "a", long = "amplitude", default_value = "1")]
+    amplitude: f32,
+
     #[structopt(short = "i", long = "input", parse(from_os_str))]
     input: Option<PathBuf>,
 
@@ -74,6 +77,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
                     spec.sample_rate,
                     channel_samples,
                     opt.factor,
+                    opt.amplitude,
                     opt.pitch_multiple,
                     window.clone(),
                     i.to_string(),
