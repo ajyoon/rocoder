@@ -32,6 +32,7 @@ minimp3 = "*"
 cpal = "*"
 libc = "*"
 custom_error = "*"
+pbr = "*"
 
 [dev-dependencies]
 test-case = "0.3.3"

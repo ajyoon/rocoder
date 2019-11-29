@@ -7,19 +7,22 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use pbr::ProgressBar;
+
 use crate::audio::AudioSpec;
+
+const PLAYBACK_SLEEP: Duration = Duration::from_millis(250);
 
 /// Simple audio playback
 
-pub fn play_audio(audio_spec: &AudioSpec, mut audio_channels: Vec<Vec<f32>>) {
-    let expected_dur_micros = ((audio_channels.get(0).unwrap().len() as f32
-        / audio_spec.sample_rate as f32)
-        * 1_000_000.0) as u64;
+pub fn play_audio(audio_spec: &AudioSpec, audio_channels: Vec<Vec<f32>>) {
+    let samples_dur = audio_channels.get(0).unwrap().len();
     let playback_position: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
     let cloned_playback_position = Arc::clone(&playback_position);
 
     let host = cpal::default_host();
-    let event_loop = host.event_loop();
+    let event_loop = Arc::new(host.event_loop());
+    let event_loop_arc_for_run = Arc::clone(&event_loop);
     let output_device = host
         .default_output_device()
         .expect("failed to get default output device");
@@ -41,7 +44,7 @@ pub fn play_audio(audio_spec: &AudioSpec, mut audio_channels: Vec<Vec<f32>>) {
     event_loop.play_stream(output_stream_id.clone()).unwrap();
 
     thread::spawn(move || {
-        event_loop.run(move |_stream_id, stream_data| {
+        event_loop_arc_for_run.run(move |_stream_id, stream_data| {
             let mut buffer = match stream_data {
                 Ok(res) => match res {
                     StreamData::Output {
@@ -66,7 +69,24 @@ pub fn play_audio(audio_spec: &AudioSpec, mut audio_channels: Vec<Vec<f32>>) {
         });
     });
 
-    // super hacky "wait till playback is done"
+    let mut progress_bar = playback_progress_bar();
+    loop {
+        let current_playback_position = *playback_position.lock().unwrap();
+        if current_playback_position >= samples_dur {
+            break;
+        }
+        progress_bar.set(((current_playback_position as f32 / samples_dur as f32) * 100.0) as u64);
+        progress_bar.tick();
+        thread::sleep(PLAYBACK_SLEEP);
+    }
+    progress_bar.finish();
+    event_loop.destroy_stream(output_stream_id);
+}
 
-    thread::sleep(Duration::from_micros(expected_dur_micros));
+fn playback_progress_bar() -> ProgressBar<std::io::Stdout> {
+    let mut progress_bar = ProgressBar::new(100);
+    progress_bar.show_speed = false;
+    progress_bar.show_counter = false;
+    progress_bar.tick_format("▁▂▃▄▅▆▇█▇▆▅▄▃");
+    progress_bar
 }
