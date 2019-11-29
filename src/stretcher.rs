@@ -1,10 +1,41 @@
 use crate::crossfade;
 use crate::fft::ReFFT;
+use crate::resampler;
 use std::cmp;
 use std::time::Duration;
 use stopwatch::Stopwatch;
 
 pub async fn stretch(
+    sample_rate: u32,
+    samples: Vec<f32>,
+    factor: f32,
+    pitch_multiple: i8,
+    window: Vec<f32>,
+    channel_name: String,
+) -> Vec<f32> {
+    debug_assert!(pitch_multiple != 0);
+    let pitch_shifted_factor = if pitch_multiple < 0 {
+        factor / 2f32.powi(pitch_multiple.abs() as i32 - 1)
+    } else {
+        factor * 2f32.powi(pitch_multiple.abs() as i32 - 1)
+    };
+
+    let stretched = stretch_without_pitch_shift(
+        sample_rate,
+        samples,
+        pitch_shifted_factor,
+        window,
+        channel_name,
+    )
+    .await;
+    if pitch_multiple == 1 {
+        stretched
+    } else {
+        resampler::resample(stretched, pitch_multiple)
+    }
+}
+
+async fn stretch_without_pitch_shift(
     sample_rate: u32,
     samples: Vec<f32>,
     factor: f32,

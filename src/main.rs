@@ -15,16 +15,19 @@ use std::error::Error;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::time::Duration;
-use structopt::StructOpt;
+use structopt::{clap::AppSettings, StructOpt};
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "yoonstretch")]
+#[structopt(name = "yoonstretch", setting = AppSettings::AllowNegativeNumbers)]
 struct Opt {
     #[structopt(short = "w", long = "window", default_value = "32768")]
     window_len: usize,
 
     #[structopt(short = "f", long = "factor")]
     factor: f32,
+
+    #[structopt(short = "p", long = "pitch_multiple", default_value = "1")]
+    pitch_multiple: i8,
 
     #[structopt(short = "i", long = "input", parse(from_os_str))]
     input: Option<PathBuf>,
@@ -71,6 +74,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
                     spec.sample_rate,
                     channel_samples,
                     opt.factor,
+                    opt.pitch_multiple,
                     window.clone(),
                     i.to_string(),
                 )

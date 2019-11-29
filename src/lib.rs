@@ -3,6 +3,7 @@
 extern crate log;
 
 mod crossfade;
+mod resampler;
 mod test_utils;
 
 pub mod audio;
