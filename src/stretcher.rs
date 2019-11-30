@@ -59,6 +59,9 @@ async fn stretch_without_pitch_shift(
         channel_name,
     );
 
+    // correct for power lost in resynth - correction curve approx by trial and error
+    let amp_factor = (4f32).max(factor / 4.0) * amplitude;
+
     for start_pos in (0..samples.len()).step_by(sample_step_size) {
         let samples_end_idx = cmp::min(samples.len(), start_pos + window_size);
         let fft_result = re_fft.resynth(&samples[start_pos..samples_end_idx]);
@@ -67,8 +70,7 @@ async fn stretch_without_pitch_shift(
                 (previous_fft_result.get(half_window_size + i).unwrap()
                     + fft_result.get(i).unwrap())
                     * amp_correction_envelope[i]
-                    * (factor / 4.0)  // TODO volume correction here is just an approximation
-		    * amplitude
+                    * amp_factor
             })
             .collect();
         stats.collect(step_output.len());

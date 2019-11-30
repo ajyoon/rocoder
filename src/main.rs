@@ -41,13 +41,21 @@ struct Opt {
     )]
     rotate_channels: bool,
 
+    #[structopt(
+        short = "x",
+        long = "fade",
+        default_value = "1",
+        parse(try_from_str = duration_parser::parse_duration),
+        help = "fade generated audio in and out for the given duration (hh:mm:ss.ss)")]
+    fade: Duration,
+
     #[structopt(short = "r", long = "record", conflicts_with = "input")]
     record: bool,
 
     #[structopt(
         short = "s",
         long = "start",
-        help = "start time in input audio (hh:mm:ss.ssss)",
+        help = "start time in input audio (hh:mm:ss.ss)",
 	parse(try_from_str = duration_parser::parse_duration)
     )]
     start: Option<Duration>,
@@ -55,7 +63,7 @@ struct Opt {
     #[structopt(
         short = "d",
         long = "duration",
-        help = "duration to use from input audio, starting at start time if given (hh:mm:ss.ssss)",
+        help = "duration to use from input audio, starting at start time if given (hh:mm:ss.ss)",
 	parse(try_from_str = duration_parser::parse_duration)
     )]
     duration: Option<Duration>,
@@ -95,7 +103,11 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
             .map(async_std::task::spawn),
     )
     .await;
-    handle_result(&opt, &spec, output_channels)?;
+    let output_audio = Audio {
+        data: output_channels,
+        spec,
+    };
+    handle_result(&opt, output_audio)?;
     Ok(())
 }
 
@@ -129,19 +141,17 @@ fn load_audio(opt: &Opt) -> Audio<f32> {
     audio
 }
 
-fn handle_result(
-    opt: &Opt,
-    spec: &AudioSpec,
-    output_channels: Vec<Vec<f32>>,
-) -> Result<(), Box<dyn Error>> {
+fn handle_result(opt: &Opt, mut output_audio: Audio<f32>) -> Result<(), Box<dyn Error>> {
+    output_audio.fade_in(Duration::from_secs(0), opt.fade);
+    output_audio.fade_out(output_audio.duration() - opt.fade, opt.fade);
     match &opt.output {
         Some(path) => {
-            let mut writer = WavWriter::open(path.to_str().unwrap(), *spec).unwrap();
-            writer.write_into_channels(output_channels)?;
+            let mut writer = WavWriter::open(path.to_str().unwrap(), output_audio.spec).unwrap();
+            writer.write_into_channels(output_audio.data)?;
             writer.finalize().unwrap();
         }
         None => {
-            player::play_audio(spec, output_channels);
+            player::play_audio(output_audio);
         }
     }
     Ok(())

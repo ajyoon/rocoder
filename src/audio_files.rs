@@ -1,7 +1,6 @@
-use crate::audio::{Audio, AudioSpec};
+use crate::audio::{Audio, AudioSpec, Sample};
 use hound;
 use minimp3;
-use num_traits::Num;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
@@ -12,8 +11,8 @@ use std::mem;
 
 pub trait AudioReader<T, R>: Iterator
 where
-    T: Sized + Num + Copy,
-    <Self as std::iter::Iterator>::Item: Sized + Num + Copy,
+    T: Sample,
+    <Self as std::iter::Iterator>::Item: Sample,
     R: Read,
 {
     /// Create a new decoding reader from an existing data reader.
@@ -31,7 +30,10 @@ where
 
     fn spec(&self) -> AudioSpec;
 
-    fn read_all(&mut self) -> Audio<<Self as std::iter::Iterator>::Item> {
+    fn read_all(&mut self) -> Audio<<Self as std::iter::Iterator>::Item>
+    where
+        <Self as std::iter::Iterator>::Item: Sample,
+    {
         let num_channels = self.spec().channels as usize;
         let mut channels: Vec<Vec<<Self as std::iter::Iterator>::Item>> = (0..num_channels)
             .map(|_| match self.duration() {
@@ -55,7 +57,7 @@ where
 
 pub trait AudioWriter<T, W>: Sized
 where
-    T: Sized + Num + Copy,
+    T: Sample,
     W: Write + Seek,
 {
     fn new(writer: W, spec: AudioSpec) -> Result<Self, Box<dyn Error>>
@@ -97,7 +99,7 @@ pub struct WavReader<T, R> {
 
 impl<T> WavReader<T, io::BufReader<fs::File>>
 where
-    T: Sized + Num + hound::Sample + Copy,
+    T: Sample + hound::Sample,
 {
     pub fn open(path: &str) -> Result<Self, Box<dyn Error>> {
         let file = fs::File::open(path)?;
@@ -111,7 +113,7 @@ impl<T, R> WavReader<T, R> {
         hound_wav_reader: &mut hound::WavReader<R>,
     ) -> Result<(), Box<dyn Error>>
     where
-        T: Sized + Num + hound::Sample,
+        T: Sample + hound::Sample,
         R: Read,
     {
         let first_sample_returned = hound_wav_reader.samples::<T>().next();
@@ -152,7 +154,7 @@ impl<T, R> WavReader<T, R> {
 
 impl<T, R> AudioReader<T, R> for WavReader<T, R>
 where
-    T: Sized + Num + hound::Sample + Copy,
+    T: Sample + hound::Sample,
     R: Read,
 {
     fn new(reader: R) -> Result<Self, Box<dyn Error>>
@@ -194,7 +196,7 @@ where
 
 impl<T, R> Iterator for WavReader<T, R>
 where
-    T: Sized + Num + hound::Sample,
+    T: Sample + hound::Sample,
     R: Read,
 {
     type Item = T;
@@ -239,7 +241,7 @@ impl_hound_sample_format!(i32, hound::SampleFormat::Int);
 impl<T, W> AudioWriter<T, W> for WavWriter<T, W>
 where
     Self: HoundSampleFormat<T>,
-    T: Sized + Copy + Num + hound::Sample,
+    T: Sample + hound::Sample,
     W: Write + Seek,
 {
     fn new(writer: W, spec: AudioSpec) -> Result<Self, Box<dyn Error>> {
@@ -277,7 +279,7 @@ where
 impl<T> WavWriter<T, io::BufWriter<fs::File>>
 where
     Self: HoundSampleFormat<T>,
-    T: Sized + Num + Copy + hound::Sample,
+    T: Sample + hound::Sample,
 {
     pub fn open(path: &str, spec: AudioSpec) -> Result<Self, Box<dyn Error>> {
         let file = fs::File::create(path)?;
@@ -296,19 +298,9 @@ pub struct Mp3Reader<T, R> {
     _phantom: PhantomData<T>,
 }
 
-pub trait Sample {
-    fn from_i16(n: i16) -> Self;
-}
-
-impl Sample for f32 {
-    fn from_i16(n: i16) -> Self {
-        n as f32 / i16::max_value() as f32
-    }
-}
-
 impl<T, R> AudioReader<T, R> for Mp3Reader<T, R>
 where
-    T: Sized + Num + Sample + Copy,
+    T: Sample,
     R: Read,
 {
     fn new(reader: R) -> Result<Self, Box<dyn Error>>
@@ -349,7 +341,7 @@ where
 
 impl<T> Mp3Reader<T, io::BufReader<fs::File>>
 where
-    T: Sized + Num + Sample + Copy,
+    T: Sample,
 {
     pub fn open(path: &str) -> Result<Self, Box<dyn Error>> {
         let file = fs::File::open(path)?;
@@ -360,7 +352,7 @@ where
 
 impl<T, R> Mp3Reader<T, R>
 where
-    T: Sized + Num + Sample,
+    T: Sample,
     R: Read,
 {
     fn next_i16_sample(&mut self) -> Option<i16> {
@@ -382,7 +374,7 @@ where
 
 impl<T, R> Iterator for Mp3Reader<T, R>
 where
-    T: Sized + Num + Sample,
+    T: Sample,
     R: Read,
 {
     type Item = T;

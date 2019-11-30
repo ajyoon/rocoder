@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let opt = Opt::from_args();
     let mut audio: Audio<f32> = load_audio(&opt);
     audio.amplify_in_place(opt.amplitude);
-    player::play_audio(&audio.spec, audio.data);
+    player::play_audio(audio);
     Ok(())
 }
 

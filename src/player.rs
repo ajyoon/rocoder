@@ -9,14 +9,17 @@ use std::time::Duration;
 
 use pbr::ProgressBar;
 
-use crate::audio::AudioSpec;
+use crate::audio::{Audio, Sample};
 
 const PLAYBACK_SLEEP: Duration = Duration::from_millis(250);
 
 /// Simple audio playback
 
-pub fn play_audio(audio_spec: &AudioSpec, audio_channels: Vec<Vec<f32>>) {
-    let samples_dur = audio_channels.get(0).unwrap().len();
+pub fn play_audio<T>(audio: Audio<T>)
+where
+    T: Sample,
+{
+    let samples_dur = audio.data.get(0).unwrap().len();
     let playback_position: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
     let cloned_playback_position = Arc::clone(&playback_position);
 
@@ -32,8 +35,8 @@ pub fn play_audio(audio_spec: &AudioSpec, audio_channels: Vec<Vec<f32>>) {
     );
 
     let format = Format {
-        channels: audio_spec.channels,
-        sample_rate: SampleRate(audio_spec.sample_rate),
+        channels: audio.spec.channels,
+        sample_rate: SampleRate(audio.spec.sample_rate),
         data_type: SampleFormat::F32,
     };
 
@@ -59,11 +62,9 @@ pub fn play_audio(audio_spec: &AudioSpec, audio_channels: Vec<Vec<f32>>) {
             let mut playback_pos = cloned_playback_position.lock().unwrap();
 
             for buffer_interleaved_samples in buffer.chunks_mut(format.channels as usize) {
-                for (dest, src_channel) in
-                    buffer_interleaved_samples.iter_mut().zip(&audio_channels)
-                {
+                for (dest, src_channel) in buffer_interleaved_samples.iter_mut().zip(&audio.data) {
                     match src_channel.get(*playback_pos) {
-                        Some(sample) => *dest = *sample,
+                        Some(sample) => *dest = (*sample).into_f32(),
                         None => {
                             *dest = 0.0;
                         }

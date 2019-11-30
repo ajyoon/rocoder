@@ -3,14 +3,12 @@ use cpal::{
     traits::{DeviceTrait, EventLoopTrait, HostTrait},
     Format, SampleFormat, SampleRate, StreamData, UnknownTypeInputBuffer,
 };
-use num_traits::Num;
 use std::io;
-use std::ops::MulAssign;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 
-use crate::audio::{Audio, AudioSpec};
+use crate::audio::{Audio, AudioSpec, Sample};
 
 /// Simple audio recording
 
@@ -71,7 +69,7 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
 
 fn collect_samples<T>(spec: &AudioSpec, raw_samples_receiver: mpsc::Receiver<T>) -> Audio<T>
 where
-    T: Sized + Num + Copy + MulAssign,
+    T: Sample,
 {
     let mut audio = Audio::from_spec(&spec);
     for (i, sample) in raw_samples_receiver.try_iter().enumerate() {

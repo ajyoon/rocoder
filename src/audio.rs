@@ -1,6 +1,67 @@
+use crate::math;
 use num_traits::Num;
 use std::ops::MulAssign;
 use std::time::Duration;
+
+pub trait Sample: Sized + Num + Copy + MulAssign + Send + 'static {
+    fn from_i16(n: i16) -> Self;
+    fn from_i32(n: i32) -> Self;
+    fn from_f32(n: f32) -> Self;
+    fn from_f64(n: f64) -> Self;
+    fn into_f32(self) -> f32;
+}
+
+macro_rules! impl_sample_for_float {
+    ($type_name: ty) => {
+        impl Sample for $type_name {
+            fn from_i16(n: i16) -> Self {
+                n as $type_name / i16::max_value() as $type_name
+            }
+
+            fn from_i32(n: i32) -> Self {
+                n as $type_name / i32::max_value() as $type_name
+            }
+
+            fn from_f32(n: f32) -> Self {
+                n as $type_name
+            }
+
+            fn from_f64(n: f64) -> Self {
+                n as $type_name
+            }
+
+            fn into_f32(self) -> f32 {
+                self as f32
+            }
+        }
+    };
+}
+
+impl_sample_for_float!(f32);
+impl_sample_for_float!(f64);
+
+impl Sample for i16 {
+    fn from_i16(n: i16) -> Self {
+        n
+    }
+
+    fn from_i32(n: i32) -> Self {
+        // there is definitely a more efficient way to do this
+        ((n as f32 / i32::max_value() as f32) * i16::max_value() as f32) as i16
+    }
+
+    fn from_f32(n: f32) -> Self {
+        n as i16
+    }
+
+    fn from_f64(n: f64) -> Self {
+        n as i16
+    }
+
+    fn into_f32(self) -> f32 {
+        self as f32 / i16::max_value() as f32
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub struct AudioSpec {
@@ -13,7 +74,7 @@ pub struct AudioSpec {
 #[derive(Debug)]
 pub struct Audio<T>
 where
-    T: Sized + Num + Copy,
+    T: Sample,
 {
     pub data: Vec<Vec<T>>,
     pub spec: AudioSpec,
@@ -21,11 +82,17 @@ where
 
 impl<T> Audio<T>
 where
-    T: Sized + Num + Copy + MulAssign,
+    T: Sample,
 {
     pub fn from_spec(spec: &AudioSpec) -> Audio<T> {
         let data = (0..spec.channels).map(|_| Vec::new()).collect();
         Audio { data, spec: *spec }
+    }
+
+    pub fn duration(&self) -> Duration {
+        Duration::from_nanos(
+            ((self.data[0].len() as f32 / self.spec.sample_rate as f32) * 1_000_000_000.0) as u64,
+        )
     }
 
     pub fn clip_in_place(&mut self, start_offset: Option<Duration>, duration: Option<Duration>) {
@@ -49,6 +116,46 @@ where
         self.data.rotate_right(1);
     }
 
+    pub fn fade_in(&mut self, start: Duration, dur: Duration) {
+        self.fade_in_at_sample(self.duration_to_sample(start), self.duration_to_sample(dur))
+    }
+
+    fn fade_in_at_sample(&mut self, start: usize, dur: usize) {
+        if start + dur > self.data[0].len() {
+            warn!("Fade in parameters out of bounds, ignoring.");
+            return;
+        }
+        for channel in self.data.iter_mut() {
+            for i in 0..start {
+                channel[i] = T::zero();
+            }
+            for p in 0..dur {
+                channel[start + p] *=
+                    T::from_f32(math::sqrt_interp(0.0, 1.0, p as f32 / dur as f32))
+            }
+        }
+    }
+
+    pub fn fade_out(&mut self, start: Duration, dur: Duration) {
+        self.fade_out_at_sample(self.duration_to_sample(start), self.duration_to_sample(dur))
+    }
+
+    fn fade_out_at_sample(&mut self, start: usize, dur: usize) {
+        if start + dur > self.data[0].len() {
+            warn!("Fade out parameters out of bounds, ignoring.");
+            return;
+        }
+        for channel in self.data.iter_mut() {
+            for i in start + dur..channel.len() {
+                channel[i] = T::zero();
+            }
+            for p in 0..dur {
+                channel[start + p] *=
+                    T::from_f32(math::sqrt_interp(1.0, 0.0, p as f32 / dur as f32))
+            }
+        }
+    }
+
     fn resolve_start_sample_pos(&self, start_offset: Option<Duration>) -> usize {
         match start_offset {
             Some(offset) => (offset.as_secs_f64() * self.spec.sample_rate as f64) as usize,
@@ -65,12 +172,22 @@ where
             None => self.data.get(0).unwrap().len(),
         }
     }
+
+    fn duration_to_sample(&self, duration: Duration) -> usize {
+        (duration.as_secs_f32() * self.spec.sample_rate as f32) as usize
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::test_utils::*;
+
+    #[test]
+    fn test_duration() {
+        let audio = generate_audio(0.0, 10, 2, 2);
+        assert_almost_eq(audio.duration().as_secs_f32(), 5.0);
+    }
 
     #[test]
     fn test_clip_in_place_both_args_none() {
@@ -122,6 +239,32 @@ mod test {
         audio.rotate_channels();
         assert_almost_eq_by_element(audio.data[0].clone(), vec![5.0, 5.0]);
         assert_almost_eq_by_element(audio.data[1].clone(), vec![6.0, 5.0]);
+    }
+
+    #[test]
+    fn test_fade_in_at_sample() {
+        let mut audio = generate_audio(1.0, 10, 2, 44100);
+        audio.fade_in_at_sample(3, 4);
+        assert_almost_eq_by_element(
+            audio.data[0].clone(),
+            vec![
+                0.0, 0.0, 0.0, 0.0, 0.5, 0.70710677, 0.8660254, 1.0, 1.0, 1.0,
+            ],
+        );
+        assert_almost_eq_by_element(audio.data[0].clone(), audio.data[1].clone());
+    }
+
+    #[test]
+    fn test_fade_out_at_sample() {
+        let mut audio = generate_audio(1.0, 10, 2, 44100);
+        audio.fade_out_at_sample(3, 4);
+        assert_almost_eq_by_element(
+            audio.data[0].clone(),
+            vec![
+                1.0, 1.0, 1.0, 1.0, 0.8660254, 0.70710677, 0.5, 0.0, 0.0, 0.0,
+            ],
+        );
+        assert_almost_eq_by_element(audio.data[0].clone(), audio.data[1].clone());
     }
 
     fn generate_audio(fill_val: f32, len: usize, channels: u16, sample_rate: u32) -> Audio<f32> {
