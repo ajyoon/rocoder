@@ -62,7 +62,12 @@ pub fn play_audio(audio_spec: &AudioSpec, audio_channels: Vec<Vec<f32>>) {
                 for (dest, src_channel) in
                     buffer_interleaved_samples.iter_mut().zip(&audio_channels)
                 {
-                    *dest = unsafe { *src_channel.get_unchecked(*playback_pos) };
+                    match src_channel.get(*playback_pos) {
+                        Some(sample) => *dest = *sample,
+                        None => {
+                            *dest = 0.0;
+                        }
+                    }
                 }
                 *playback_pos += 1;
             }
@@ -80,6 +85,7 @@ pub fn play_audio(audio_spec: &AudioSpec, audio_channels: Vec<Vec<f32>>) {
         thread::sleep(PLAYBACK_SLEEP);
     }
     progress_bar.finish();
+    println!("\nplayback complete");
     event_loop.destroy_stream(output_stream_id);
 }
 
