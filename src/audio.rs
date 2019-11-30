@@ -173,8 +173,12 @@ where
         }
     }
 
-    fn duration_to_sample(&self, duration: Duration) -> usize {
+    pub fn duration_to_sample(&self, duration: Duration) -> usize {
         (duration.as_secs_f32() * self.spec.sample_rate as f32) as usize
+    }
+
+    pub fn sample_to_duration(&self, sample: usize) -> Duration {
+        Duration::from_secs_f32(sample as f32 / self.spec.sample_rate as f32)
     }
 }
 
@@ -265,6 +269,18 @@ mod test {
             ],
         );
         assert_almost_eq_by_element(audio.data[0].clone(), audio.data[1].clone());
+    }
+
+    #[test]
+    fn test_duration_to_sample() {
+        let audio = generate_audio(1.0, 10, 2, 44100);
+        assert_eq!(audio.duration_to_sample(Duration::from_secs(1)), 44100);
+    }
+
+    #[test]
+    fn test_sample_to_duration() {
+        let audio = generate_audio(1.0, 10, 2, 44100);
+        assert_eq!(audio.sample_to_duration(44100), Duration::from_secs(1));
     }
 
     fn generate_audio(fill_val: f32, len: usize, channels: u16, sample_rate: u32) -> Audio<f32> {

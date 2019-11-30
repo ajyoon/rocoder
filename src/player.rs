@@ -3,15 +3,20 @@ use cpal::{
     traits::{DeviceTrait, EventLoopTrait, HostTrait},
     Format, SampleFormat, SampleRate, StreamData, UnknownTypeOutputBuffer,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::thread;
 use std::time::Duration;
 
+use ctrlc;
 use pbr::ProgressBar;
 
 use crate::audio::{Audio, Sample};
 
 const PLAYBACK_SLEEP: Duration = Duration::from_millis(250);
+const QUIT_FADE: Duration = Duration::from_secs(5);
 
 /// Simple audio playback
 
@@ -20,8 +25,17 @@ where
     T: Sample,
 {
     let samples_dur = audio.data.get(0).unwrap().len();
+    let format = Format {
+        channels: audio.spec.channels,
+        sample_rate: SampleRate(audio.spec.sample_rate),
+        data_type: SampleFormat::F32,
+    };
+
+    let audio_arc = Arc::new(Mutex::new(audio));
+    let audio_arc_for_run = Arc::clone(&audio_arc);
     let playback_position: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
-    let cloned_playback_position = Arc::clone(&playback_position);
+    let playback_position_for_run = Arc::clone(&playback_position);
+    let playback_position_for_ctrlc = Arc::clone(&playback_position);
 
     let host = cpal::default_host();
     let event_loop = Arc::new(host.event_loop());
@@ -33,12 +47,6 @@ where
         "Using default output device: \"{}\"",
         output_device.name().unwrap()
     );
-
-    let format = Format {
-        channels: audio.spec.channels,
-        sample_rate: SampleRate(audio.spec.sample_rate),
-        data_type: SampleFormat::F32,
-    };
 
     let output_stream_id = event_loop
         .build_output_stream(&output_device, &format)
@@ -59,7 +67,9 @@ where
                     panic!("failed to fetch get audio stream: {:?}", e);
                 }
             };
-            let mut playback_pos = cloned_playback_position.lock().unwrap();
+            let mut playback_pos = playback_position_for_run.lock().unwrap();
+
+            let audio = audio_arc_for_run.lock().unwrap();
 
             for buffer_interleaved_samples in buffer.chunks_mut(format.channels as usize) {
                 for (dest, src_channel) in buffer_interleaved_samples.iter_mut().zip(&audio.data) {
@@ -75,18 +85,37 @@ where
         });
     });
 
+    // On early quit, fade out the sound before quitting
+    let quit_signal_received = Arc::new(AtomicBool::new(false));
+    let sig = Arc::clone(&quit_signal_received);
+    ctrlc::set_handler(move || {
+        println!("\nGot quit signal, fading out audio for {:#?}", QUIT_FADE);
+        let mut audio = audio_arc.lock().unwrap();
+        let fade_out_start = audio.sample_to_duration(*playback_position_for_ctrlc.lock().unwrap());
+        audio.fade_out(fade_out_start, QUIT_FADE);
+        drop(audio);
+        thread::sleep(QUIT_FADE + Duration::from_millis(50));
+        sig.store(true, Ordering::SeqCst);
+    })
+    .unwrap();
+
+    // Manage progress bar and wait for playback to complete
     let mut progress_bar = playback_progress_bar();
     loop {
         let current_playback_position = *playback_position.lock().unwrap();
         if current_playback_position >= samples_dur {
+            progress_bar.finish();
+            println!("\nplayback complete");
+            break;
+        } else if quit_signal_received.load(Ordering::SeqCst) {
+            progress_bar.finish();
+            println!("\nplayback aborted");
             break;
         }
         progress_bar.set(((current_playback_position as f32 / samples_dur as f32) * 100.0) as u64);
         progress_bar.tick();
         thread::sleep(PLAYBACK_SLEEP);
     }
-    progress_bar.finish();
-    println!("\nplayback complete");
     event_loop.destroy_stream(output_stream_id);
 }
 
