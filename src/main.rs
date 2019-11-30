@@ -1,5 +1,5 @@
 use yoonstretch::audio::{Audio, AudioSpec};
-use yoonstretch::audio_files::{AudioReader, AudioWriter, Mp3Reader, WavReader, WavWriter};
+use yoonstretch::audio_files::{AudioReader, AudioWriter, WavReader, WavWriter};
 use yoonstretch::duration_parser;
 use yoonstretch::player;
 use yoonstretch::recorder;
@@ -10,11 +10,9 @@ use yoonstretch::windows;
 use async_std;
 use futures::executor::block_on;
 use futures::future;
-use num_traits::Num;
 use std::error::Error;
 
-use std::io::{self, Read};
-use std::ops::MulAssign;
+use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 use structopt::{clap::AppSettings, StructOpt};
@@ -97,7 +95,7 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
             .map(async_std::task::spawn),
     )
     .await;
-    handle_result(&opt, &spec, output_channels);
+    handle_result(&opt, &spec, output_channels)?;
     Ok(())
 }
 

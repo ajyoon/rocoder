@@ -15,6 +15,8 @@ use crate::audio::{Audio, AudioSpec};
 /// Simple audio recording
 
 pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
+    wait_for_enter_keypress("Press ENTER to start recording");
+
     let host = cpal::default_host();
     let event_loop = Arc::new(host.event_loop());
     let event_loop_arc_for_run = Arc::clone(&event_loop);
@@ -36,8 +38,8 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
     let input_stream_id = event_loop
         .build_input_stream(&input_device, &format)
         .unwrap();
-    event_loop.play_stream(input_stream_id.clone()).unwrap();
 
+    event_loop.play_stream(input_stream_id.clone()).unwrap();
     thread::spawn(move || {
         event_loop_arc_for_run.run(move |_stream_id, stream_data| {
             let buffer = match stream_data {
@@ -62,8 +64,7 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
         });
     });
 
-    println!("Press ENTER to finish recording");
-    wait_for_enter_keypress();
+    wait_for_enter_keypress("Press ENTER to finish recording");
     event_loop.destroy_stream(input_stream_id);
     collect_samples(audio_spec, raw_samples_receiver)
 }
@@ -79,7 +80,8 @@ where
     audio
 }
 
-fn wait_for_enter_keypress() {
+fn wait_for_enter_keypress(message: &str) {
+    println!("{}", message);
     let mut throwaway_input = String::new();
     match io::stdin().read_line(&mut throwaway_input) {
         Ok(_) => {}
