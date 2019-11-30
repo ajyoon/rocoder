@@ -2,6 +2,7 @@ use yoonstretch::audio::{Audio, AudioSpec};
 use yoonstretch::audio_files::{AudioReader, AudioWriter, Mp3Reader, WavReader, WavWriter};
 use yoonstretch::duration_parser;
 use yoonstretch::player;
+use yoonstretch::recorder;
 use yoonstretch::runtime_setup;
 use yoonstretch::stretcher;
 use yoonstretch::windows;
@@ -37,11 +38,13 @@ struct Opt {
     input: Option<PathBuf>,
 
     #[structopt(
-        short = "r",
-        long = "rotate",
+        long = "rotate-channels",
         help = "Rotate the input audio channels. With stereo audio this means swapping the left and right channels"
     )]
-    rotate: bool,
+    rotate_channels: bool,
+
+    #[structopt(short = "r", long = "record", conflicts_with = "input")]
+    record: bool,
 
     #[structopt(
         short = "s",
@@ -98,18 +101,22 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn load_audio<T>(opt: &Opt) -> Audio<T>
-where
-    T: Sized + Num + Copy + MulAssign + hound::Sample,
-{
-    let mut audio = match &opt.input {
-        Some(path) => {
-            let mut reader = WavReader::open(path.to_str().unwrap()).unwrap();
-            reader.read_all()
-        }
-        None => {
-            let mut reader = WavReader::new(io::stdin()).unwrap();
-            reader.read_all()
+fn load_audio(opt: &Opt) -> Audio<f32> {
+    let mut audio = if opt.record {
+        recorder::record_audio(&AudioSpec {
+            channels: 2,
+            sample_rate: 44100,
+        })
+    } else {
+        match &opt.input {
+            Some(path) => {
+                let mut reader = WavReader::open(path.to_str().unwrap()).unwrap();
+                reader.read_all()
+            }
+            None => {
+                let mut reader = WavReader::new(io::stdin()).unwrap();
+                reader.read_all()
+            }
         }
     };
 
@@ -117,7 +124,7 @@ where
         audio.clip_in_place(opt.start, opt.duration);
     }
 
-    if opt.rotate {
+    if opt.rotate_channels {
         audio.rotate_channels();
     }
 

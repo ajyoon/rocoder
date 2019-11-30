@@ -10,6 +10,7 @@ pub struct AudioSpec {
     pub sample_rate: u32,
 }
 
+#[derive(Debug)]
 pub struct Audio<T>
 where
     T: Sized + Num + Copy,
@@ -22,6 +23,11 @@ impl<T> Audio<T>
 where
     T: Sized + Num + Copy + MulAssign,
 {
+    pub fn from_spec(spec: &AudioSpec) -> Audio<T> {
+        let data = (0..spec.channels).map(|_| Vec::new()).collect();
+        Audio { data, spec: *spec }
+    }
+
     pub fn clip_in_place(&mut self, start_offset: Option<Duration>, duration: Option<Duration>) {
         let start_sample_pos = self.resolve_start_sample_pos(start_offset);
         let end_sample_pos = self.resolve_end_sample_pos(start_sample_pos, duration);
@@ -119,16 +125,16 @@ mod test {
     }
 
     fn generate_audio(fill_val: f32, len: usize, channels: u16, sample_rate: u32) -> Audio<f32> {
-        let mut data: Vec<Vec<f32>> = Vec::new();
-        for _ in 0..channels {
-            data.push(vec![fill_val; len]);
+        let spec = AudioSpec {
+            channels,
+            sample_rate,
+        };
+        let mut audio = Audio::from_spec(&spec);
+        for channel in audio.data.iter_mut() {
+            for _ in 0..len {
+                channel.push(fill_val);
+            }
         }
-        Audio {
-            data,
-            spec: AudioSpec {
-                channels,
-                sample_rate,
-            },
-        }
+        audio
     }
 }
