@@ -55,34 +55,11 @@ where
     event_loop.play_stream(output_stream_id.clone()).unwrap();
 
     thread::spawn(move || {
-        event_loop_arc_for_run.run(move |_stream_id, stream_data| {
-            let mut buffer = match stream_data {
-                Ok(res) => match res {
-                    StreamData::Output {
-                        buffer: UnknownTypeOutputBuffer::F32(buffer),
-                    } => buffer,
-                    _ => panic!("unexpected buffer type"),
-                },
-                Err(e) => {
-                    panic!("failed to fetch get audio stream: {:?}", e);
-                }
-            };
-            let playback_pos = playback_position_for_run.load(Ordering::SeqCst);
-
-            let audio = audio_arc_for_run.lock().unwrap();
-
-            for buffer_interleaved_samples in buffer.chunks_mut(format.channels as usize) {
-                for (dest, src_channel) in buffer_interleaved_samples.iter_mut().zip(&audio.data) {
-                    match src_channel.get(playback_pos) {
-                        Some(sample) => *dest = (*sample).into_f32(),
-                        None => {
-                            *dest = 0.0;
-                        }
-                    }
-                }
-                playback_position_for_run.fetch_add(1, Ordering::SeqCst);
-            }
-        });
+        cpal_callback(
+            event_loop_arc_for_run,
+            playback_position_for_run,
+            audio_arc_for_run,
+        )
     });
 
     // On early quit, fade out the sound before quitting
@@ -125,6 +102,43 @@ fn playback_progress_bar() -> ProgressBar<std::io::Stdout> {
     progress_bar.show_counter = false;
     progress_bar.tick_format("▁▂▃▄▅▆▇█▇▆▅▄▃");
     progress_bar
+}
+
+#[inline]
+fn cpal_callback<T>(
+    event_loop: Arc<impl EventLoopTrait>,
+    playback_pos_arc: Arc<AtomicUsize>,
+    audio_arc: Arc<Mutex<Audio<T>>>,
+) where
+    T: Sample,
+{
+    event_loop.run(move |_stream_id, stream_data| {
+        let mut buffer = match stream_data {
+            Ok(res) => match res {
+                StreamData::Output {
+                    buffer: UnknownTypeOutputBuffer::F32(buffer),
+                } => buffer,
+                _ => panic!("unexpected buffer type"),
+            },
+            Err(e) => {
+                panic!("failed to fetch get audio stream: {:?}", e);
+            }
+        };
+
+        let audio = audio_arc.lock().unwrap();
+
+        for buffer_interleaved_samples in buffer.chunks_mut(audio.spec.channels as usize) {
+            let playback_pos = playback_pos_arc.fetch_add(1, Ordering::SeqCst);
+            for (dest, src_channel) in buffer_interleaved_samples.iter_mut().zip(&audio.data) {
+                match src_channel.get(playback_pos) {
+                    Some(sample) => *dest = (*sample).into_f32(),
+                    None => {
+                        *dest = 0.0;
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn control_c_handler<T>(
