@@ -4,7 +4,7 @@ use cpal::{
     Format, SampleFormat, SampleRate, StreamData, UnknownTypeOutputBuffer,
 };
 use std::sync::{
-    atomic::{AtomicU16, Ordering},
+    atomic::{AtomicU16, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 use std::thread;
@@ -33,7 +33,7 @@ where
 
     let audio_arc = Arc::new(Mutex::new(audio));
     let audio_arc_for_run = Arc::clone(&audio_arc);
-    let playback_position: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+    let playback_position: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     let playback_position_for_run = Arc::clone(&playback_position);
     let playback_position_for_ctrlc = Arc::clone(&playback_position);
 
@@ -67,20 +67,20 @@ where
                     panic!("failed to fetch get audio stream: {:?}", e);
                 }
             };
-            let mut playback_pos = playback_position_for_run.lock().unwrap();
+            let playback_pos = playback_position_for_run.load(Ordering::SeqCst);
 
             let audio = audio_arc_for_run.lock().unwrap();
 
             for buffer_interleaved_samples in buffer.chunks_mut(format.channels as usize) {
                 for (dest, src_channel) in buffer_interleaved_samples.iter_mut().zip(&audio.data) {
-                    match src_channel.get(*playback_pos) {
+                    match src_channel.get(playback_pos) {
                         Some(sample) => *dest = (*sample).into_f32(),
                         None => {
                             *dest = 0.0;
                         }
                     }
                 }
-                *playback_pos += 1;
+                playback_position_for_run.fetch_add(1, Ordering::SeqCst);
             }
         });
     });
@@ -89,31 +89,18 @@ where
     let quit_counter = Arc::new(AtomicU16::new(0));
     let quit_counter_clone = Arc::clone(&quit_counter);
     ctrlc::set_handler(move || {
-        if quit_counter_clone.fetch_add(1, Ordering::SeqCst) > 0 {
-            // If ctrl-c was received more than once, quit without fading out
-            println!("\nExiting immediately");
-            return;
-        }
-        println!(
-            "\nGot quit quit_counter_clonenal, fading out audio for {:#?}",
-            QUIT_FADE
+        control_c_handler(
+            &quit_counter_clone,
+            &playback_position_for_ctrlc,
+            &audio_arc,
         );
-        let mut audio = audio_arc.lock().unwrap();
-        let fade_out_start = audio.sample_to_duration(*playback_position_for_ctrlc.lock().unwrap());
-        audio.fade_out(fade_out_start, QUIT_FADE);
-        drop(audio);
-        let quit_counter_clone_2 = Arc::clone(&quit_counter_clone);
-        thread::spawn(move || {
-            thread::sleep(QUIT_FADE + Duration::from_millis(50));
-            quit_counter_clone_2.fetch_add(1, Ordering::SeqCst);
-        });
     })
     .unwrap();
 
     // Manage progress bar and wait for playback to complete
     let mut progress_bar = playback_progress_bar();
     loop {
-        let current_playback_position = *playback_position.lock().unwrap();
+        let current_playback_position = playback_position.load(Ordering::SeqCst);
         if current_playback_position >= samples_dur {
             progress_bar.finish();
             println!("\nplayback complete");
@@ -138,4 +125,28 @@ fn playback_progress_bar() -> ProgressBar<std::io::Stdout> {
     progress_bar.show_counter = false;
     progress_bar.tick_format("▁▂▃▄▅▆▇█▇▆▅▄▃");
     progress_bar
+}
+
+fn control_c_handler<T>(
+    quit_counter: &Arc<AtomicU16>,
+    playback_pos: &Arc<AtomicUsize>,
+    audio_arc: &Arc<Mutex<Audio<T>>>,
+) where
+    T: Sample,
+{
+    if quit_counter.fetch_add(1, Ordering::SeqCst) > 0 {
+        // If ctrl-c was received more than once, quit without fading out
+        println!("\nExiting immediately");
+        return;
+    }
+    println!("\nGot quit signal, fading out audio for {:#?}", QUIT_FADE);
+    let mut audio = audio_arc.lock().unwrap();
+    let fade_out_start = audio.sample_to_duration(playback_pos.load(Ordering::SeqCst));
+    audio.fade_out(fade_out_start, QUIT_FADE);
+    drop(audio);
+    let quit_counter_2 = Arc::clone(&quit_counter);
+    thread::spawn(move || {
+        thread::sleep(QUIT_FADE + Duration::from_millis(50));
+        quit_counter_2.fetch_add(1, Ordering::SeqCst);
+    });
 }
