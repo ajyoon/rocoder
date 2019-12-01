@@ -4,7 +4,7 @@ use cpal::{
     Format, SampleFormat, SampleRate, StreamData, UnknownTypeOutputBuffer,
 };
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicU16, Ordering},
     Arc, Mutex,
 };
 use std::thread;
@@ -86,16 +86,27 @@ where
     });
 
     // On early quit, fade out the sound before quitting
-    let quit_signal_received = Arc::new(AtomicBool::new(false));
-    let sig = Arc::clone(&quit_signal_received);
+    let quit_counter = Arc::new(AtomicU16::new(0));
+    let quit_counter_clone = Arc::clone(&quit_counter);
     ctrlc::set_handler(move || {
-        println!("\nGot quit signal, fading out audio for {:#?}", QUIT_FADE);
+        if quit_counter_clone.fetch_add(1, Ordering::SeqCst) > 0 {
+            // If ctrl-c was received more than once, quit without fading out
+            println!("\nExiting immediately");
+            return;
+        }
+        println!(
+            "\nGot quit quit_counter_clonenal, fading out audio for {:#?}",
+            QUIT_FADE
+        );
         let mut audio = audio_arc.lock().unwrap();
         let fade_out_start = audio.sample_to_duration(*playback_position_for_ctrlc.lock().unwrap());
         audio.fade_out(fade_out_start, QUIT_FADE);
         drop(audio);
-        thread::sleep(QUIT_FADE + Duration::from_millis(50));
-        sig.store(true, Ordering::SeqCst);
+        let quit_counter_clone_2 = Arc::clone(&quit_counter_clone);
+        thread::spawn(move || {
+            thread::sleep(QUIT_FADE + Duration::from_millis(50));
+            quit_counter_clone_2.fetch_add(1, Ordering::SeqCst);
+        });
     })
     .unwrap();
 
@@ -107,10 +118,12 @@ where
             progress_bar.finish();
             println!("\nplayback complete");
             break;
-        } else if quit_signal_received.load(Ordering::SeqCst) {
+        } else if quit_counter.load(Ordering::SeqCst) > 1 {
             progress_bar.finish();
             println!("\nplayback aborted");
-            break;
+            // need to explicitly exit with a non-zero exit code so the control-c quit
+            // makes it to the shell so, for instance, bash loops can be broken.
+            std::process::exit(1);
         }
         progress_bar.set(((current_playback_position as f32 / samples_dur as f32) * 100.0) as u64);
         progress_bar.tick();
