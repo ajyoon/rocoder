@@ -69,7 +69,6 @@ fn playback_progress_bar() -> ProgressBar<std::io::Stdout> {
     progress_bar
 }
 
-#[inline]
 fn launch_cpal_thread<T, E>(
     event_loop: Arc<E>,
     playback_pos_arc: Arc<AtomicUsize>,

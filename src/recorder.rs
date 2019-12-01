@@ -38,29 +38,7 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
         .unwrap();
 
     event_loop.play_stream(input_stream_id.clone()).unwrap();
-    thread::spawn(move || {
-        event_loop_arc_for_run.run(move |_stream_id, stream_data| {
-            let buffer = match stream_data {
-                Ok(res) => match res {
-                    StreamData::Input {
-                        buffer: UnknownTypeInputBuffer::F32(buffer),
-                    } => buffer,
-                    _ => panic!("unexpected buffer type"),
-                },
-                Err(e) => {
-                    panic!("failed to fetch get audio stream: {:?}", e);
-                }
-            };
-            for sample in buffer.iter() {
-                match raw_samples_sender.send(*sample) {
-                    Err(e) => {
-                        error!("failed to send recorded sample: {}", e);
-                    }
-                    _ => (),
-                }
-            }
-        });
-    });
+    launch_cpal_thread(event_loop_arc_for_run, raw_samples_sender);
 
     wait_for_enter_keypress("Press ENTER to finish recording");
     event_loop.destroy_stream(input_stream_id);
@@ -87,4 +65,33 @@ fn wait_for_enter_keypress(message: &str) {
             error!("failed to get input: {}", error);
         }
     }
+}
+
+fn launch_cpal_thread<E>(event_loop: Arc<E>, raw_samples_sender: mpsc::Sender<f32>)
+where
+    E: EventLoopTrait + Send + Sync + 'static,
+{
+    thread::spawn(move || {
+        event_loop.run(move |_stream_id, stream_data| {
+            let buffer = match stream_data {
+                Ok(res) => match res {
+                    StreamData::Input {
+                        buffer: UnknownTypeInputBuffer::F32(buffer),
+                    } => buffer,
+                    _ => panic!("unexpected buffer type"),
+                },
+                Err(e) => {
+                    panic!("failed to fetch get audio stream: {:?}", e);
+                }
+            };
+            for sample in buffer.iter() {
+                match raw_samples_sender.send(*sample) {
+                    Err(e) => {
+                        error!("failed to send recorded sample: {}", e);
+                    }
+                    _ => (),
+                }
+            }
+        });
+    });
 }
