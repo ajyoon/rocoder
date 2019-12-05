@@ -282,18 +282,4 @@ mod test {
         let audio = generate_audio(1.0, 10, 2, 44100);
         assert_eq!(audio.sample_to_duration(44100), Duration::from_secs(1));
     }
-
-    fn generate_audio(fill_val: f32, len: usize, channels: u16, sample_rate: u32) -> Audio<f32> {
-        let spec = AudioSpec {
-            channels,
-            sample_rate,
-        };
-        let mut audio = Audio::from_spec(&spec);
-        for channel in audio.data.iter_mut() {
-            for _ in 0..len {
-                channel.push(fill_val);
-            }
-        }
-        audio
-    }
 }
