@@ -42,6 +42,13 @@ struct Opt {
     rotate_channels: bool,
 
     #[structopt(
+        long = "freq-kernel",
+        help = "Path to an OpenCL frequency kernel file",
+        parse(from_os_str)
+    )]
+    freq_kernel: Option<PathBuf>,
+
+    #[structopt(
         short = "x",
         long = "fade",
         default_value = "1",
@@ -98,6 +105,9 @@ async fn async_main() -> Result<(), Box<dyn Error>> {
                     opt.pitch_multiple,
                     window.clone(),
                     i.to_string(),
+                    opt.freq_kernel
+                        .as_ref()
+                        .map(|p| std::fs::read_to_string(p).unwrap()),
                 )
             })
             .map(async_std::task::spawn),

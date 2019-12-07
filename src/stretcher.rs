@@ -13,6 +13,7 @@ pub async fn stretch(
     pitch_multiple: i8,
     window: Vec<f32>,
     channel_name: String,
+    frequency_kernel_src: Option<String>,
 ) -> Vec<f32> {
     debug_assert!(pitch_multiple != 0);
     let pitch_shifted_factor = if pitch_multiple < 0 {
@@ -28,6 +29,7 @@ pub async fn stretch(
         amplitude,
         window,
         channel_name,
+        frequency_kernel_src,
     )
     .await;
     if pitch_multiple == 1 {
@@ -44,11 +46,12 @@ async fn stretch_without_pitch_shift(
     amplitude: f32,
     window: Vec<f32>,
     channel_name: String,
+    frequency_kernel_src: Option<String>,
 ) -> Vec<f32> {
     let window_size = window.len();
     let half_window_size = window_size / 2;
     let amp_correction_envelope = crossfade::hanning_crossfade_compensation(half_window_size);
-    let re_fft = ReFFT::new(window);
+    let re_fft = ReFFT::new(sample_rate, window, frequency_kernel_src);
     let sample_step_size = (window_size as f32 / (factor * 2.0)) as usize;
     let mut previous_fft_result = vec![0.0; window_size];
     let mut output = vec![];
@@ -64,7 +67,7 @@ async fn stretch_without_pitch_shift(
 
     for start_pos in (0..samples.len()).step_by(sample_step_size) {
         let samples_end_idx = cmp::min(samples.len(), start_pos + window_size);
-        let fft_result = re_fft.resynth(&samples[start_pos..samples_end_idx]);
+        let fft_result = re_fft.resynth(output.len(), &samples[start_pos..samples_end_idx]);
         let step_output: Vec<f32> = (0..half_window_size)
             .map(|i| {
                 (previous_fft_result.get(half_window_size + i).unwrap()

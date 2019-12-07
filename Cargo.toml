@@ -16,6 +16,10 @@ path = "src/main.rs"
 name = "play"
 path = "src/play_bin.rs"
 
+[[bin]]
+name = "cl_sandbox"
+path = "src/cl_sandbox.rs"
+
 [dependencies]
 rustfft = "*"
 num-traits = "*"
@@ -34,6 +38,7 @@ libc = "*"
 custom_error = "*"
 pbr = "*"
 ctrlc = "*"
+ocl = "*"
 
 [dev-dependencies]
 test-case = "0.3.3"
