@@ -67,6 +67,7 @@ async fn stretch_without_pitch_shift(
 
     for start_pos in (0..samples.len()).step_by(sample_step_size) {
         let samples_end_idx = cmp::min(samples.len(), start_pos + window_size);
+        // todo output.len() here is not actually the dest sample pos due to pitch shift
         let fft_result = re_fft.resynth(output.len(), &samples[start_pos..samples_end_idx]);
         let step_output: Vec<f32> = (0..half_window_size)
             .map(|i| {

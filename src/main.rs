@@ -7,6 +7,7 @@ use yoonstretch::runtime_setup;
 use yoonstretch::stretcher;
 use yoonstretch::windows;
 
+use anyhow::Result;
 use async_std;
 use futures::executor::block_on;
 use futures::future;
@@ -79,11 +80,11 @@ struct Opt {
     output: Option<PathBuf>,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     block_on(async_main())
 }
 
-async fn async_main() -> Result<(), Box<dyn Error>> {
+async fn async_main() -> Result<()> {
     runtime_setup::setup_logging();
     let opt = Opt::from_args();
 
@@ -151,7 +152,7 @@ fn load_audio(opt: &Opt) -> Audio<f32> {
     audio
 }
 
-fn handle_result(opt: &Opt, mut output_audio: Audio<f32>) -> Result<(), Box<dyn Error>> {
+fn handle_result(opt: &Opt, mut output_audio: Audio<f32>) -> Result<()> {
     output_audio.fade_in(Duration::from_secs(0), opt.fade);
     output_audio.fade_out(output_audio.duration() - opt.fade, opt.fade);
     match &opt.output {

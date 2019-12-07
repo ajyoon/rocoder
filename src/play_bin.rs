@@ -5,7 +5,7 @@ use yoonstretch::player;
 use yoonstretch::recorder;
 use yoonstretch::runtime_setup;
 
-use std::error::Error;
+use anyhow::{anyhow, Result};
 
 use std::io;
 use std::path::PathBuf;
@@ -47,7 +47,7 @@ struct Opt {
     duration: Option<Duration>,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     runtime_setup::setup_logging();
     let opt = Opt::from_args();
     let mut audio: Audio<f32> = load_audio(&opt);

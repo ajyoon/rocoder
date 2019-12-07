@@ -1,4 +1,5 @@
 use crate::audio::{Audio, AudioSpec, Sample};
+use anyhow::{anyhow, Result};
 use hound;
 use minimp3;
 use std::collections::HashSet;
@@ -18,7 +19,7 @@ where
     /// Create a new decoding reader from an existing data reader.
     ///
     /// Audio metadata is read immediately, while sample data will be done on demand.
-    fn new(reader: R) -> Result<Self, Box<dyn Error>>
+    fn new(reader: R) -> Result<Self>
     where
         Self: Sized;
 
@@ -60,19 +61,19 @@ where
     T: Sample,
     W: Write + Seek,
 {
-    fn new(writer: W, spec: AudioSpec) -> Result<Self, Box<dyn Error>>
+    fn new(writer: W, spec: AudioSpec) -> Result<Self>
     where
         Self: Sized;
 
-    fn write(&mut self, sample: T) -> Result<(), Box<dyn Error>>
+    fn write(&mut self, sample: T) -> Result<()>
     where
         Self: Sized;
 
-    fn finalize(self) -> Result<(), Box<dyn Error>>
+    fn finalize(self) -> Result<()>
     where
         Self: Sized;
 
-    fn write_into_channels(&mut self, channels: Vec<Vec<T>>) -> Result<(), Box<dyn Error>> {
+    fn write_into_channels(&mut self, channels: Vec<Vec<T>>) -> Result<()> {
         // Sanity check that each channel has the same length, and that there is at least one channel
         debug_assert!(HashSet::<usize>::from_iter(channels.iter().map(|c| c.len())).len() == 1);
         let samples_per_channel = channels.get(0).unwrap().len();
@@ -101,7 +102,7 @@ impl<T> WavReader<T, io::BufReader<fs::File>>
 where
     T: Sample + hound::Sample,
 {
-    pub fn open(path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn open(path: &str) -> Result<Self> {
         let file = fs::File::open(path)?;
         let reader = io::BufReader::new(file);
         WavReader::new(reader)
@@ -109,27 +110,20 @@ where
 }
 
 impl<T, R> WavReader<T, R> {
-    fn validate_hound_reader(
-        hound_wav_reader: &mut hound::WavReader<R>,
-    ) -> Result<(), Box<dyn Error>>
+    fn validate_hound_reader(hound_wav_reader: &mut hound::WavReader<R>) -> Result<()>
     where
         T: Sample + hound::Sample,
         R: Read,
     {
-        let first_sample_returned = hound_wav_reader.samples::<T>().next();
+        let _first_sample_returned = hound_wav_reader
+            .samples::<T>()
+            .next()
+            .ok_or(anyhow!("could not read samples to validate reader"))?;
 
         // I want to reset here so we don't just lose the first sample,
         // but without managing a slow buffer or requiring the Seek trait
         // (which otherwise is not necessary) we can't...so let's just drop it
         // let _ = hound_wav_reader.seek(0);
-
-        if let Some(result) = first_sample_returned {
-            // urgh.. trying to unpack option of hound result to dyn result...
-            // definitely a better way to do this but I can't find it
-            if result.is_err() {
-                return Err(Box::from(result.err().unwrap()));
-            }
-        }
 
         // Since we tested one sample, we need to discard `channels - 1` samples as well
         // to make sure we keep the interleaved channels oriented correctly.
@@ -140,11 +134,12 @@ impl<T, R> WavReader<T, R> {
         Ok(())
     }
 
-    fn validate_num_samples(num_samples: u32, channels: u16) -> Result<(), String> {
+    fn validate_num_samples(num_samples: u32, channels: u16) -> Result<()> {
         return if num_samples % channels as u32 != 0 {
-            Err(format!(
+            Err(anyhow!(
                 "num_samples {} is not a multiple of channel count {}",
-                num_samples, channels
+                num_samples,
+                channels
             ))
         } else {
             Ok(())
@@ -157,7 +152,7 @@ where
     T: Sample + hound::Sample,
     R: Read,
 {
-    fn new(reader: R) -> Result<Self, Box<dyn Error>>
+    fn new(reader: R) -> Result<Self>
     where
         Self: Sized,
     {
@@ -244,7 +239,7 @@ where
     T: Sample + hound::Sample,
     W: Write + Seek,
 {
-    fn new(writer: W, spec: AudioSpec) -> Result<Self, Box<dyn Error>> {
+    fn new(writer: W, spec: AudioSpec) -> Result<Self> {
         let hound_spec = hound::WavSpec {
             channels: spec.channels,
             sample_rate: spec.sample_rate,
@@ -259,20 +254,18 @@ where
         })
     }
 
-    fn write(&mut self, sample: T) -> Result<(), Box<dyn Error>>
+    fn write(&mut self, sample: T) -> Result<()>
     where
         Self: Sized,
     {
-        self.underlier
-            .write_sample(sample)
-            .map_err(|e| Box::from(e))
+        Ok(self.underlier.write_sample(sample)?)
     }
 
-    fn finalize(self) -> Result<(), Box<dyn Error>>
+    fn finalize(self) -> Result<()>
     where
         Self: Sized,
     {
-        self.underlier.finalize().map_err(|e| Box::from(e))
+        Ok(self.underlier.finalize()?)
     }
 }
 
@@ -281,7 +274,7 @@ where
     Self: HoundSampleFormat<T>,
     T: Sample + hound::Sample,
 {
-    pub fn open(path: &str, spec: AudioSpec) -> Result<Self, Box<dyn Error>> {
+    pub fn open(path: &str, spec: AudioSpec) -> Result<Self> {
         let file = fs::File::create(path)?;
         let buf_writer = io::BufWriter::new(file);
         WavWriter::new(buf_writer, spec)
@@ -303,7 +296,7 @@ where
     T: Sample,
     R: Read,
 {
-    fn new(reader: R) -> Result<Self, Box<dyn Error>>
+    fn new(reader: R) -> Result<Self>
     where
         Self: Sized,
     {
@@ -343,7 +336,7 @@ impl<T> Mp3Reader<T, io::BufReader<fs::File>>
 where
     T: Sample,
 {
-    pub fn open(path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn open(path: &str) -> Result<Self> {
         let file = fs::File::open(path)?;
         let reader = io::BufReader::new(file);
         Mp3Reader::new(reader)

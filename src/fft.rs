@@ -127,7 +127,7 @@ impl ReFFT {
         }
 
         out_buf.read(frequency_bins).enq()?;
-        info!("applied kernel in {:?}", sw.elapsed());
+        // info!("applied kernel in {:?}", sw.elapsed());
         Ok(())
     }
 }

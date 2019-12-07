@@ -39,6 +39,7 @@ custom_error = "*"
 pbr = "*"
 ctrlc = "*"
 ocl = "*"
+anyhow = "1.0"
 
 [dev-dependencies]
 test-case = "0.3.3"
