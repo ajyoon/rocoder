@@ -53,6 +53,9 @@ impl OpenClProgram {
 mod test {
     use super::*;
     use crate::test_utils::*;
+    use std::path::PathBuf;
+    extern crate test;
+    use test::Bencher;
 
     #[test]
     #[ignore] // slow
@@ -70,5 +73,21 @@ mod test {
         program.apply_fft_transform(&mut buffer, 123).unwrap();
         assert_almost_eq_by_element(buffer.clone(), vec![0.0, 1.0, 2.0, 3.0, 4.0]);
         assert!(false);
+    }
+
+    #[bench]
+    fn benchmark_kernel(b: &mut Bencher) {
+        // 220 us for 44100
+        // 625 us for 441000
+        // 20,000 us for 4410000
+        let buffer_size = 44100;
+        let kernel_src = std::fs::read_to_string(PathBuf::from("test.cl")).unwrap();
+        let program = OpenClProgram::new(kernel_src, buffer_size);
+
+        let mut buffer = vec![0.0; buffer_size];
+        b.iter(|| {
+            let _ = test::black_box(1);
+            program.apply_fft_transform(&mut buffer, 123).unwrap();
+        });
     }
 }
