@@ -3,7 +3,6 @@ use anyhow::{anyhow, Result};
 use hound;
 use minimp3;
 use std::collections::HashSet;
-use std::error::Error;
 use std::fs;
 use std::io::{self, Read, Seek, Write};
 use std::iter::FromIterator;

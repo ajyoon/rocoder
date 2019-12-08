@@ -105,7 +105,7 @@ impl ReFFT {
         frequency_bins: &mut Vec<f32>,
     ) -> Result<(), ocl::Error> {
         let pro_que = self.kernel_program.as_ref().unwrap();
-        let sw = Stopwatch::start_new();
+        // let sw = Stopwatch::start_new();
         let in_buf = unsafe {
             pro_que
                 .buffer_builder::<f32>()

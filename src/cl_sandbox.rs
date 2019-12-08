@@ -1,10 +1,7 @@
 use ocl::{self, ProQue, SpatialDims};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 use stopwatch::Stopwatch;
 use structopt::StructOpt;
-
-use yoonstretch::math::lerp;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "cl_sandbox")]

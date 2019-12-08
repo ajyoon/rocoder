@@ -11,7 +11,6 @@ use anyhow::Result;
 use async_std;
 use futures::executor::block_on;
 use futures::future;
-use std::error::Error;
 
 use std::io;
 use std::path::PathBuf;

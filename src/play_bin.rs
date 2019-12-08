@@ -5,7 +5,7 @@ use yoonstretch::player;
 use yoonstretch::recorder;
 use yoonstretch::runtime_setup;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 use std::io;
 use std::path::PathBuf;
