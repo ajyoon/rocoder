@@ -1,7 +1,7 @@
 __kernel void transform(__global float const* const in_buf, __global float* const out_buf, 
-                        __private uint len, __private uint sample_rate, __private uint dest_sample_pos) {
+                        __private uint elapsed_ms) {
   uint idx = get_global_id(0);
-  uint dest_elapsed_s = dest_sample_pos / sample_rate;
+  uint len = get_global_size(0);
   
-  out_buf[idx] = in_buf[(idx - (dest_elapsed_s * 4)) % len];
+  out_buf[idx] = in_buf[(idx - (elapsed_ms / 250)) % len];
 }

@@ -1,11 +1,12 @@
-use ocl::{self, ProQue, SpatialDims};
+use anyhow::Result;
 use rand::Rng;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
 use rustfft::{FFTplanner, FFT};
 use std::f32;
 use std::sync::Arc;
-use stopwatch::Stopwatch;
+
+use crate::opencl::OpenClProgram;
 
 const TWO_PI: f32 = f32::consts::PI;
 
@@ -15,7 +16,7 @@ pub struct ReFFT {
     inverse_fft: Arc<dyn FFT<f32>>,
     window_len: usize,
     window: Vec<f32>,
-    kernel_program: Option<ProQue>,
+    kernel_program: Option<OpenClProgram>,
 }
 
 impl ReFFT {
@@ -25,7 +26,7 @@ impl ReFFT {
         let forward_fft = forward_planner.plan_fft(window_len);
         let mut inverse_planner: FFTplanner<f32> = FFTplanner::new(true);
         let inverse_fft = inverse_planner.plan_fft(window_len);
-        let kernel_program = kernel_src.map(|s| Self::build_pro_que(s, window_len));
+        let kernel_program = kernel_src.map(|s| OpenClProgram::new(s, window_len));
         ReFFT {
             sample_rate,
             forward_fft,
@@ -34,17 +35,6 @@ impl ReFFT {
             window,
             kernel_program,
         }
-    }
-
-    fn build_pro_que(src: String, window_len: usize) -> ProQue {
-        let sw = Stopwatch::start_new();
-        let pro_que = ProQue::builder()
-            .src(src)
-            .dims(SpatialDims::One(window_len))
-            .build()
-            .unwrap();
-        info!("Created ProQue in {:?}", sw.elapsed());
-        pro_que
     }
 
     pub fn resynth(&self, dest_sample_pos: usize, samples: &[f32]) -> Vec<f32> {
@@ -90,71 +80,15 @@ impl ReFFT {
         &self,
         dest_sample_pos: usize,
         fft_result: &mut Vec<Complex<f32>>,
-    ) -> Result<(), ocl::Error> {
+    ) -> Result<()> {
         let mut frequency_bins = fft_result.iter().map(|c| c.re).collect();
-        self.apply_opencl_kernel(dest_sample_pos, &mut frequency_bins)?;
+        self.kernel_program.as_ref().unwrap().apply_fft_transform(
+            &mut frequency_bins,
+            (dest_sample_pos as u32 * 1000) / self.sample_rate,
+        );
         for i in 0..fft_result.len() {
             fft_result[i].re = frequency_bins[i];
         }
         Ok(())
-    }
-
-    fn apply_opencl_kernel(
-        &self,
-        dest_sample_pos: usize,
-        frequency_bins: &mut Vec<f32>,
-    ) -> Result<(), ocl::Error> {
-        let pro_que = self.kernel_program.as_ref().unwrap();
-        // let sw = Stopwatch::start_new();
-        let in_buf = unsafe {
-            pro_que
-                .buffer_builder::<f32>()
-                .use_host_slice(&frequency_bins)
-                .build()?
-        };
-        let out_buf = pro_que.create_buffer().unwrap();
-        let kernel = pro_que
-            .kernel_builder("transform")
-            .arg(&in_buf)
-            .arg(&out_buf)
-            .arg((&in_buf).len() as u32)
-            .arg(self.sample_rate)
-            .arg(dest_sample_pos as u32)
-            .build()
-            .unwrap();
-        unsafe {
-            kernel.enq()?;
-        }
-
-        out_buf.read(frequency_bins).enq()?;
-        // info!("applied kernel in {:?}", sw.elapsed());
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    #[ignore]
-    fn opencl_experiment() {
-        let mut fft_result = vec![Complex::new(1.0, 2.0); 10];
-        let kernel_src = r#"
-            __kernel void transform(__global float const* const in_buf, __global float* const out_buf, 
-                                    __private uint len, __private uint sample_rate, __private uint dest_sample_pos) {
-              uint idx = get_global_id(0);
-              uint dest_elapsed_s = dest_sample_pos / sample_rate;
-              
-              out_buf[idx] = in_buf[(idx - (dest_elapsed_s * 4)) % len];
-            }
-        "#;
-        let re_fft = ReFFT::new(44100, vec![0.0; 10], Some(kernel_src.to_string()));
-        re_fft
-            .apply_opencl_kernel_to_fft_result(0, &mut fft_result)
-            .unwrap();
-        println!("{:?}", &fft_result[0]);
-        assert_eq!(fft_result[0], Complex::new(5.0, 2.0));
-        assert!(false);
     }
 }
