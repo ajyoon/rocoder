@@ -1,4 +1,9 @@
-use ocl::{self, ProQue, SpatialDims};
+use ocl::{
+    self,
+    builders::ProgramBuilder,
+    flags::{CommandQueueProperties, MemFlags},
+    ProQue, SpatialDims,
+};
 use stopwatch::Stopwatch;
 
 pub struct OpenClProgram {
@@ -8,12 +13,24 @@ pub struct OpenClProgram {
 impl OpenClProgram {
     pub fn new(src: String, buffer_size: usize) -> Self {
         let sw = Stopwatch::start_new();
+        let mut program_builder = ProgramBuilder::new();
+        program_builder.cmplr_def("LEN", buffer_size as i32);
+        program_builder.cmplr_opt("-cl-fast-relaxed-math");
+        program_builder.source(src);
         let kernel_program = ProQue::builder()
-            .src(src)
+            .prog_bldr(program_builder)
             .dims(SpatialDims::One(buffer_size))
+            .queue_properties(CommandQueueProperties::new().out_of_order())
             .build()
             .unwrap();
         info!("Created ProQue in {:?}", sw.elapsed());
+        println!(
+            "{}",
+            kernel_program
+                .queue()
+                .info(ocl::enums::CommandQueueInfo::Properties)
+                .unwrap()
+        );
 
         Self { kernel_program }
     }
@@ -28,10 +45,16 @@ impl OpenClProgram {
         let in_buf = unsafe {
             pro_que
                 .buffer_builder::<f32>()
+                .copy_host_slice(&frequency_bins)
+                .flags(MemFlags::new().read_only())
+                .build()?
+        };
+        let out_buf = unsafe {
+            pro_que
+                .buffer_builder::<f32>()
                 .use_host_slice(&frequency_bins)
                 .build()?
         };
-        let out_buf = pro_que.create_buffer().unwrap();
         let kernel = pro_que
             .kernel_builder("transform")
             .arg(&in_buf)
@@ -42,9 +65,9 @@ impl OpenClProgram {
         unsafe {
             kernel.enq()?;
         }
+        unsafe { out_buf.map().enq()? };
 
-        out_buf.read(frequency_bins).enq()?;
-        debug!("applied kernel in {:?}", sw.elapsed());
+        //debug!("applied kernel in {:?}", sw.elapsed());
         Ok(())
     }
 }
@@ -64,23 +87,21 @@ mod test {
             __kernel void transform(__global float const* const in_buf, __global float* const out_buf, 
                                     __private uint elapsed_ms) {
               uint idx = get_global_id(0);
-              out_buf[idx] = (float) idx;
+              out_buf[idx] = in_buf[idx] + (float) idx;
             }
         "#.to_string();
 
         let program = OpenClProgram::new(kernel_src, 5);
-        let mut buffer = vec![0.0; 5];
+        let mut buffer = vec![10.0; 5];
         program.apply_fft_transform(&mut buffer, 123).unwrap();
-        assert_almost_eq_by_element(buffer.clone(), vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+        assert_almost_eq_by_element(buffer.clone(), vec![10.0, 11.0, 12.0, 13.0, 14.0]);
         assert!(false);
     }
 
     #[bench]
     fn benchmark_kernel(b: &mut Bencher) {
-        // 220 us for 44100
-        // 625 us for 441000
-        // 20,000 us for 4410000
-        let buffer_size = 44100;
+        // 156 us for 32768
+        let buffer_size = 32768;
         let kernel_src = std::fs::read_to_string(PathBuf::from("test.cl")).unwrap();
         let program = OpenClProgram::new(kernel_src, buffer_size);
 
