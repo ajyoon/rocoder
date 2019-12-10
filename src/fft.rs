@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rand::Rng;
-use rustfft::num_complex::Complex;
+use rustfft::num_complex::Complex32;
 use rustfft::num_traits::Zero;
 use rustfft::{FFTplanner, FFT};
 use std::f32;
@@ -46,25 +46,28 @@ impl ReFFT {
         self.resynth_from_fft_result(fft_result)
     }
 
-    fn forward_fft(&self, samples: &[f32]) -> Vec<Complex<f32>> {
-        let mut input: Vec<Complex<f32>> = samples
+    fn forward_fft(&self, samples: &[f32]) -> Vec<Complex32> {
+        let mut input: Vec<Complex32> = samples
             .iter()
             .zip(&self.window)
-            .map(|(s, w)| Complex::new(s * w, 0.0))
+            .map(|(s, w)| Complex32::new(s * w, 0.0))
             .collect();
         if input.len() < self.window_len {
-            input.extend(vec![Complex::new(0.0, 0.0); self.window_len - input.len()]);
+            input.extend(vec![
+                Complex32::new(0.0, 0.0);
+                self.window_len - input.len()
+            ]);
         }
-        let mut output: Vec<Complex<f32>> = vec![Complex::zero(); self.window_len];
-        self.forward_fft.process(&mut input, &mut output);
+        let mut output: Vec<Complex32> = vec![Complex32::zero(); self.window_len];
+        self.forward_fft.process(input.as_mut_slice(), &mut output);
         output
     }
 
-    fn resynth_from_fft_result(&self, fft_result: Vec<Complex<f32>>) -> Vec<f32> {
+    fn resynth_from_fft_result(&self, fft_result: Vec<Complex32>) -> Vec<f32> {
         let mut rng = rand::thread_rng();
-        let mut input: Vec<Complex<f32>> = fft_result
+        let mut input: Vec<Complex32> = fft_result
             .iter()
-            .map(|c| Complex::new(0.0, rng.gen_range(0.0, TWO_PI)).exp() * c.norm())
+            .map(|c| Complex32::new(0.0, rng.gen_range(0.0, TWO_PI)).exp() * c.norm())
             .collect();
         // reuse fft_result for output to skip another allocation
         let mut output = fft_result;
@@ -79,16 +82,16 @@ impl ReFFT {
     fn apply_opencl_kernel_to_fft_result(
         &self,
         dest_sample_pos: usize,
-        fft_result: &mut Vec<Complex<f32>>,
+        fft_result: &mut Vec<Complex32>,
     ) -> Result<()> {
-        let mut frequency_bins = fft_result.iter().map(|c| c.re).collect();
-        self.kernel_program.as_ref().unwrap().apply_fft_transform(
-            &mut frequency_bins,
-            (dest_sample_pos as u32 * 1000) / self.sample_rate,
-        );
-        for i in 0..fft_result.len() {
-            fft_result[i].re = frequency_bins[i];
-        }
+        self.kernel_program
+            .as_ref()
+            .unwrap()
+            .apply_fft_transform(
+                fft_result,
+                (dest_sample_pos as u32 * 1000) / self.sample_rate,
+            )
+            .unwrap();
         Ok(())
     }
 }
