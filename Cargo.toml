@@ -17,8 +17,8 @@ name = "play"
 path = "src/play_bin.rs"
 
 [[bin]]
-name = "cl_sandbox"
-path = "src/cl_sandbox.rs"
+name = "dynamic_test"
+path = "src/dynamic_test.rs"
 
 [dependencies]
 rustfft = "*"
@@ -38,8 +38,10 @@ libc = "*"
 custom_error = "*"
 pbr = "*"
 ctrlc = "*"
-ocl = "*"
 anyhow = "1.0"
+libloading = "0.5"
+notify = "5.0.0-pre.1"
+crossbeam-channel = "0.3.8"
 
 [dev-dependencies]
 test-case = "0.3.3"

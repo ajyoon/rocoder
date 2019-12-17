@@ -6,8 +6,6 @@ use rustfft::{FFTplanner, FFT};
 use std::f32;
 use std::sync::Arc;
 
-use crate::opencl::OpenClProgram;
-
 const TWO_PI: f32 = f32::consts::PI;
 
 pub struct ReFFT {
@@ -16,7 +14,6 @@ pub struct ReFFT {
     inverse_fft: Arc<dyn FFT<f32>>,
     window_len: usize,
     window: Vec<f32>,
-    kernel_program: Option<OpenClProgram>,
 }
 
 impl ReFFT {
@@ -26,23 +23,21 @@ impl ReFFT {
         let forward_fft = forward_planner.plan_fft(window_len);
         let mut inverse_planner: FFTplanner<f32> = FFTplanner::new(true);
         let inverse_fft = inverse_planner.plan_fft(window_len);
-        let kernel_program = kernel_src.map(|s| OpenClProgram::new(s, window_len));
         ReFFT {
             sample_rate,
             forward_fft,
             inverse_fft,
             window_len,
             window,
-            kernel_program,
         }
     }
 
     pub fn resynth(&self, dest_sample_pos: usize, samples: &[f32]) -> Vec<f32> {
         let mut fft_result = self.forward_fft(samples);
-        if self.kernel_program.is_some() {
-            self.apply_opencl_kernel_to_fft_result(dest_sample_pos, &mut fft_result)
-                .unwrap();
-        }
+        // if self.kernel_program.is_some() {
+        //     self.apply_opencl_kernel_to_fft_result(dest_sample_pos, &mut fft_result)
+        //         .unwrap();
+        // }
         self.resynth_from_fft_result(fft_result)
     }
 
@@ -79,19 +74,19 @@ impl ReFFT {
             .collect()
     }
 
-    fn apply_opencl_kernel_to_fft_result(
-        &self,
-        dest_sample_pos: usize,
-        fft_result: &mut Vec<Complex32>,
-    ) -> Result<()> {
-        self.kernel_program
-            .as_ref()
-            .unwrap()
-            .apply_fft_transform(
-                fft_result,
-                (dest_sample_pos as u32 * 1000) / self.sample_rate,
-            )
-            .unwrap();
-        Ok(())
-    }
+    // fn apply_opencl_kernel_to_fft_result(
+    //     &self,
+    //     dest_sample_pos: usize,
+    //     fft_result: &mut Vec<Complex32>,
+    // ) -> Result<()> {
+    //     self.kernel_program
+    //         .as_ref()
+    //         .unwrap()
+    //         .apply_fft_transform(
+    //             fft_result,
+    //             (dest_sample_pos as u32 * 1000) / self.sample_rate,
+    //         )
+    //         .unwrap();
+    //     Ok(())
+    // }
 }
