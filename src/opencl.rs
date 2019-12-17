@@ -73,7 +73,7 @@ impl OpenClProgram {
     ) -> Result<(), ocl::Error> {
         let pro_que = &self.kernel_program;
         debug_assert!(pro_que.dims()[0] == fft_result.len());
-        let sw = Stopwatch::start_new();
+        //let sw = Stopwatch::start_new();
         let fft_result_as_ctype: Vec<Complex<f32>> = fft_result
             .iter()
             .map(|r| Complex::<f32>::from(*r))

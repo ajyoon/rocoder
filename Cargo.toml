@@ -1,15 +1,15 @@
 [package]
-name = "yoonstretch"
+name = "rocoder"
 version = "0.1.0"
 authors = ["Andrew Yoon <andrew@nothing-to-say.org>"]
 edition = "2018"
 
 [lib]
-name = "yoonstretch"
+name = "rocoder"
 path = "src/lib.rs"
 
 [[bin]]
-name = "yoonstretch"
+name = "rocoder"
 path = "src/main.rs"
 
 [[bin]]

@@ -1,11 +1,11 @@
-use yoonstretch::audio::{Audio, AudioSpec};
-use yoonstretch::audio_files::{AudioReader, AudioWriter, WavReader, WavWriter};
-use yoonstretch::duration_parser;
-use yoonstretch::player;
-use yoonstretch::recorder;
-use yoonstretch::runtime_setup;
-use yoonstretch::stretcher;
-use yoonstretch::windows;
+use rocoder::audio::{Audio, AudioSpec};
+use rocoder::audio_files::{AudioReader, AudioWriter, WavReader, WavWriter};
+use rocoder::duration_parser;
+use rocoder::player;
+use rocoder::recorder;
+use rocoder::runtime_setup;
+use rocoder::stretcher;
+use rocoder::windows;
 
 use anyhow::Result;
 use async_std;
@@ -18,7 +18,7 @@ use std::time::Duration;
 use structopt::{clap::AppSettings, StructOpt};
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "yoonstretch", setting = AppSettings::AllowNegativeNumbers)]
+#[structopt(name = "rocoder", setting = AppSettings::AllowNegativeNumbers)]
 struct Opt {
     #[structopt(short = "w", long = "window", default_value = "32768")]
     window_len: usize,
