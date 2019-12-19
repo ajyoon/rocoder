@@ -111,7 +111,7 @@ where
     fn prune_keyframes(&mut self) {
         loop {
             if self.amp_keyframes.len() > 1 {
-                if self.amp_keyframes[self.amp_keyframes.len() - 1].sample_pos
+                if self.amp_keyframes[self.amp_keyframes.len() - 2].sample_pos
                     < self.total_samples_played
                 {
                     self.amp_keyframes.pop();
@@ -156,18 +156,17 @@ where
             val: to,
         });
         self.sort_keyframes();
-        println!("{:?}", &self.amp_keyframes);
     }
 
-    pub fn fade(&mut self, start: Duration, start_val: f32, dur: Duration, end_val: f32) {
-        self.amp_keyframes.push(Keyframe {
-            sample_pos: (start.as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
-            val: start_val,
-        });
-        self.amp_keyframes.push(Keyframe {
-            sample_pos: ((start + dur).as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
-            val: end_val,
-        });
-        self.sort_keyframes();
-    }
+    // pub fn fade(&mut self, start: Duration, start_val: f32, dur: Duration, end_val: f32) {
+    //     self.amp_keyframes.push(Keyframe {
+    //         sample_pos: (start.as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
+    //         val: start_val,
+    //     });
+    //     self.amp_keyframes.push(Keyframe {
+    //         sample_pos: ((start + dur).as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
+    //         val: end_val,
+    //     });
+    //     self.sort_keyframes();
+    // }
 }

@@ -42,7 +42,7 @@ fn attempt_lib_update(src_path: &Path, lib_sender: &Sender<Library>) {
     };
     match lib_sender.send(library) {
         Ok(_) => (),
-        Err(_) => warn!(
+        Err(_) => trace!(
             "Failed to send library down channel for file {:?}",
             &src_path
         ),
