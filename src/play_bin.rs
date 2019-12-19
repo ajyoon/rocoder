@@ -54,10 +54,11 @@ fn main() -> Result<()> {
     let mut audio: Audio<f32> = load_audio(&opt);
     audio.amplify_in_place(opt.amplitude);
     let spec = audio.spec;
+    let total_samples = audio.data[0].len();
     let (tx, rx) = unbounded::<Audio<f32>>();
     tx.send(audio)?;
     drop(tx);
-    player::play_audio(spec, rx);
+    player::play_audio(spec, rx, Some(total_samples));
     Ok(())
 }
 

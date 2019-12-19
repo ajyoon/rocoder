@@ -14,14 +14,18 @@ use std::thread;
 use std::time::Duration;
 
 use crate::audio::{Audio, AudioSpec, Sample};
+use crate::mixer::{Mixer, MixerState};
 
 const PLAYBACK_SLEEP: Duration = Duration::from_millis(250);
 const QUIT_FADE: Duration = Duration::from_secs(5);
 
 /// Simple audio playback
 
-pub fn play_audio<T>(spec: AudioSpec, stream: Receiver<Audio<T>>)
-where
+pub fn play_audio<T>(
+    spec: AudioSpec,
+    stream: Receiver<Audio<T>>,
+    expected_total_samples: Option<usize>,
+) where
     T: Sample,
 {
     let format = Format {
@@ -30,16 +34,12 @@ where
         data_type: SampleFormat::F32,
     };
 
-    let stream_arc = Arc::new(Mutex::new(stream));
-    let stream_arc_for_run = Arc::clone(&stream_arc);
-    let audio_arc = Arc::new(Mutex::new(Audio::from_spec(&spec)));
-    let audio_arc_for_run = Arc::clone(&audio_arc);
-    let playback_position: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
-    let playback_position_for_run = Arc::clone(&playback_position);
-    let total_playback_position: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
-    let total_playback_position_for_run = Arc::clone(&total_playback_position);
-    let playback_complete_flag = Arc::new(AtomicBool::new(false));
-    let playback_complete_flag_for_run = Arc::clone(&playback_complete_flag);
+    let mixer_arc = Arc::new(Mutex::new(Mixer::new(
+        &spec,
+        stream,
+        expected_total_samples,
+    )));
+    let mixer_arc_for_run = Arc::clone(&mixer_arc);
 
     let host = cpal::default_host();
     let event_loop = Arc::new(host.event_loop());
@@ -58,22 +58,9 @@ where
 
     event_loop.play_stream(output_stream_id.clone()).unwrap();
 
-    launch_cpal_thread(
-        event_loop_arc_for_run,
-        playback_position_for_run,
-        total_playback_position_for_run,
-        playback_complete_flag_for_run,
-        stream_arc_for_run,
-        audio_arc_for_run,
-    );
+    launch_cpal_thread(event_loop_arc_for_run, mixer_arc_for_run);
 
-    wait_for_playback(
-        total_playback_position,
-        playback_complete_flag,
-        audio_arc,
-        event_loop,
-        output_stream_id,
-    );
+    wait_for_playback(mixer_arc, event_loop, output_stream_id);
 }
 
 fn playback_progress_bar() -> ProgressBar<std::io::Stdout> {
@@ -84,14 +71,8 @@ fn playback_progress_bar() -> ProgressBar<std::io::Stdout> {
     progress_bar
 }
 
-fn launch_cpal_thread<T, E>(
-    event_loop: Arc<E>,
-    playback_pos_arc: Arc<AtomicUsize>,
-    total_playback_pos_arc: Arc<AtomicUsize>,
-    playback_complete_arc: Arc<AtomicBool>,
-    stream_arc: Arc<Mutex<Receiver<Audio<T>>>>,
-    audio_arc: Arc<Mutex<Audio<T>>>,
-) where
+fn launch_cpal_thread<T, E>(event_loop: Arc<E>, mixer_arc: Arc<Mutex<Mixer<T>>>)
+where
     T: Sample,
     E: EventLoopTrait + Send + Sync + 'static,
 {
@@ -109,41 +90,14 @@ fn launch_cpal_thread<T, E>(
                 }
             };
 
-            let mut audio = audio_arc.lock().unwrap();
-
-            for buffer_interleaved_samples in buffer.chunks_mut(audio.spec.channels as usize) {
-                let mut playback_pos = playback_pos_arc.fetch_add(1, Ordering::SeqCst);
-                total_playback_pos_arc.fetch_add(1, Ordering::SeqCst);
-                if playback_pos >= audio.data[0].len() {
-                    match stream_arc.lock().unwrap().recv() {
-                        Ok(new_audio) => {
-                            *audio = new_audio;
-                            playback_pos_arc.store(0, Ordering::SeqCst);
-                            playback_pos = 0;
-                        }
-                        Err(e) => {
-                            playback_complete_arc.store(true, Ordering::SeqCst);
-                        }
-                    }
-                }
-                for (dest, src_channel) in buffer_interleaved_samples.iter_mut().zip(&audio.data) {
-                    match src_channel.get(playback_pos) {
-                        Some(sample) => *dest = (*sample).into_f32(),
-                        None => {
-                            *dest = 0.0;
-                        }
-                    }
-                }
-            }
+            let mut mixer = mixer_arc.lock().unwrap();
+            mixer.fill_buffer(&mut buffer);
         });
     });
 }
 
-fn control_c_handler<T>(
-    quit_counter: &Arc<AtomicU16>,
-    total_playback_pos: &Arc<AtomicUsize>,
-    audio_arc: &Arc<Mutex<Audio<T>>>,
-) where
+fn control_c_handler<T>(quit_counter: &Arc<AtomicU16>, mixer_arc: &Arc<Mutex<Mixer<T>>>)
+where
     T: Sample,
 {
     if quit_counter.fetch_add(1, Ordering::SeqCst) > 0 {
@@ -153,10 +107,10 @@ fn control_c_handler<T>(
     }
     println!("\nGot quit signal, fading out audio for {:#?}", QUIT_FADE);
     // nb fade doesnt work with streaming model yet
-    let mut audio = audio_arc.lock().unwrap();
-    let fade_out_start = audio.sample_to_duration(total_playback_pos.load(Ordering::SeqCst));
-    audio.fade_out(fade_out_start, QUIT_FADE);
-    drop(audio);
+    // let mut audio = audio_arc.lock().unwrap();
+    // let fade_out_start = audio.sample_to_duration(total_playback_pos.load(Ordering::SeqCst));
+    // audio.fade_out(fade_out_start, QUIT_FADE);
+    // drop(audio);
     let quit_counter_2 = Arc::clone(&quit_counter);
     thread::spawn(move || {
         thread::sleep(QUIT_FADE + Duration::from_millis(50));
@@ -165,30 +119,32 @@ fn control_c_handler<T>(
 }
 
 fn wait_for_playback<T, E>(
-    total_playback_pos: Arc<AtomicUsize>,
-    playback_complete_flag: Arc<AtomicBool>,
-    audio_arc: Arc<Mutex<Audio<T>>>,
+    mixer_arc: Arc<Mutex<Mixer<T>>>,
     event_loop: Arc<E>,
     output_stream_id: <E>::StreamId,
 ) where
     T: Sample,
     E: EventLoopTrait,
 {
-    let samples_dur = audio_arc.lock().unwrap().data[0].len();
-
     // On early quit, fade out the sound before quitting
     let quit_counter = Arc::new(AtomicU16::new(0));
     let quit_counter_clone = Arc::clone(&quit_counter);
-    let total_playback_pos_clone = Arc::clone(&total_playback_pos);
+    let mixer_arc_ctrlc_clone = Arc::clone(&mixer_arc);
     ctrlc::set_handler(move || {
-        control_c_handler(&quit_counter_clone, &total_playback_pos_clone, &audio_arc);
+        control_c_handler(&quit_counter_clone, &mixer_arc_ctrlc_clone);
     })
     .unwrap();
 
     // Manage progress bar and wait for playback to complete
     let mut progress_bar = playback_progress_bar();
     loop {
-        if playback_complete_flag.load(Ordering::SeqCst) {
+        // get all data from mixer (under mutex) at once
+        let mixer = mixer_arc.lock().unwrap();
+        let mixer_state = mixer.state;
+        let progress = mixer.progress();
+        drop(mixer);
+
+        if mixer_state == MixerState::DONE {
             progress_bar.finish();
             println!("\nplayback complete");
             break;
@@ -199,8 +155,12 @@ fn wait_for_playback<T, E>(
             // makes it to the shell so, for instance, bash loops can be broken.
             std::process::exit(1);
         }
-        let current_playback_position = total_playback_pos.load(Ordering::SeqCst);
-        progress_bar.set(((current_playback_position as f32 / samples_dur as f32) * 100.0) as u64);
+        match progress {
+            Some(percent) => {
+                progress_bar.set(percent as u64);
+            }
+            None => {}
+        }
         progress_bar.tick();
         thread::sleep(PLAYBACK_SLEEP);
     }

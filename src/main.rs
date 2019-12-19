@@ -161,10 +161,11 @@ fn handle_result(opt: &Opt, mut output_audio: Audio<f32>) -> Result<()> {
         }
         None => {
             let spec = output_audio.spec;
+            let total_samples_len = output_audio.data[0].len();
             let (tx, rx) = bounded::<Audio<f32>>(10);
             tx.send(output_audio);
             drop(tx);
-            player::play_audio(spec, rx);
+            player::play_audio(spec, rx, Some(total_samples_len));
         }
     }
     Ok(())
