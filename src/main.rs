@@ -9,7 +9,7 @@ use rocoder::windows;
 
 use anyhow::Result;
 use async_std;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::bounded;
 use futures::executor::block_on;
 use futures::future;
 
@@ -163,7 +163,7 @@ fn handle_result(opt: &Opt, mut output_audio: Audio<f32>) -> Result<()> {
             let spec = output_audio.spec;
             let total_samples_len = output_audio.data[0].len();
             let (tx, rx) = bounded::<Audio<f32>>(10);
-            tx.send(output_audio);
+            tx.send(output_audio)?;
             drop(tx);
             player::play_audio(spec, rx, Some(total_samples_len));
         }

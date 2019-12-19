@@ -1,10 +1,8 @@
 use anyhow::Result;
-use libloading::{Library, Symbol};
+use libloading::Symbol;
 use rocoder::hotswapper;
 use rocoder::runtime_setup;
-use std::env;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use stopwatch::Stopwatch;
 
 fn main() -> Result<()> {

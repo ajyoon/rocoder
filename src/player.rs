@@ -3,11 +3,11 @@ use cpal::{
     traits::{DeviceTrait, EventLoopTrait, HostTrait},
     Format, SampleFormat, SampleRate, StreamData, UnknownTypeOutputBuffer,
 };
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Receiver;
 use ctrlc;
 use pbr::ProgressBar;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering},
+    atomic::{AtomicU16, Ordering},
     Arc, Mutex,
 };
 use std::thread;

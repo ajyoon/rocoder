@@ -1,7 +1,6 @@
 use crate::crossfade;
 use crate::fft::ReFFT;
 use crate::resampler;
-use crossbeam_channel::{bounded, Receiver, Sender};
 use std::cmp;
 use std::path::PathBuf;
 use std::time::Duration;

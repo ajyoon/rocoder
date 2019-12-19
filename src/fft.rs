@@ -44,7 +44,10 @@ impl ReFFT {
     pub fn resynth(&mut self, dest_sample_pos: usize, samples: &[f32]) -> Vec<f32> {
         let mut fft_result = self.forward_fft(samples);
         if self.kernel_recv.is_some() {
-            self.apply_kernel_to_fft_result(dest_sample_pos, &mut fft_result);
+            self.apply_kernel_to_fft_result(dest_sample_pos, &mut fft_result)
+                .unwrap_or_else(|_| {
+                    warn!("failed to apply kernel to fft result");
+                });
         }
         self.resynth_from_fft_result(fft_result)
     }

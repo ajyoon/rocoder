@@ -4,7 +4,7 @@ use fwatch::{BasicTarget, Transition, Watcher};
 use libloading::{Library, Symbol};
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use tempfile;

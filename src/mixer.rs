@@ -2,7 +2,6 @@ use crate::audio::{Audio, AudioSpec, Sample};
 use crate::math;
 
 use crossbeam_channel::Receiver;
-use std::sync::atomic::Ordering;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Ord, PartialOrd, Hash)]
 pub enum MixerState {
@@ -49,7 +48,7 @@ where
                         self.buffer = new_audio;
                         self.buffer_pos = 0;
                     }
-                    Err(e) => {
+                    Err(_) => {
                         self.state = MixerState::DONE;
                     }
                 }
