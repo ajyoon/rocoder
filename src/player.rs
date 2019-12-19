@@ -37,7 +37,7 @@ where
     let playback_position: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
     let playback_position_for_run = Arc::clone(&playback_position);
     let total_playback_position: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
-    let total_playback_position_for_run = Arc::clone(&playback_position);
+    let total_playback_position_for_run = Arc::clone(&total_playback_position);
     let playback_complete_flag = Arc::new(AtomicBool::new(false));
     let playback_complete_flag_for_run = Arc::clone(&playback_complete_flag);
 
