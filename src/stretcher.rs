@@ -1,7 +1,9 @@
 use crate::crossfade;
 use crate::fft::ReFFT;
 use crate::resampler;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use std::cmp;
+use std::path::PathBuf;
 use std::time::Duration;
 use stopwatch::Stopwatch;
 
@@ -13,7 +15,7 @@ pub async fn stretch(
     pitch_multiple: i8,
     window: Vec<f32>,
     channel_name: String,
-    frequency_kernel_src: Option<String>,
+    frequency_kernel_src: Option<PathBuf>,
 ) -> Vec<f32> {
     debug_assert!(pitch_multiple != 0);
     let pitch_shifted_factor = if pitch_multiple < 0 {
@@ -46,12 +48,12 @@ async fn stretch_without_pitch_shift(
     amplitude: f32,
     window: Vec<f32>,
     channel_name: String,
-    frequency_kernel_src: Option<String>,
+    frequency_kernel_src: Option<PathBuf>,
 ) -> Vec<f32> {
     let window_size = window.len();
     let half_window_size = window_size / 2;
     let amp_correction_envelope = crossfade::hanning_crossfade_compensation(half_window_size);
-    let re_fft = ReFFT::new(sample_rate, window, frequency_kernel_src);
+    let mut re_fft = ReFFT::new(sample_rate as usize, window, frequency_kernel_src);
     let sample_step_size = (window_size as f32 / (factor * 2.0)) as usize;
     let mut previous_fft_result = vec![0.0; window_size];
     let mut output = vec![];

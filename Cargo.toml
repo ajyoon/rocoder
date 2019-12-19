@@ -40,8 +40,9 @@ pbr = "*"
 ctrlc = "*"
 anyhow = "1.0"
 libloading = "0.5"
-notify = "5.0.0-pre.1"
-crossbeam-channel = "0.3.8"
+tempfile = "*"
+crossbeam-channel = "*"
+fwatch = "0.1.5"
 
 [dev-dependencies]
 test-case = "0.3.3"

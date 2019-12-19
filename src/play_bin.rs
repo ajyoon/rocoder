@@ -6,6 +6,7 @@ use rocoder::recorder;
 use rocoder::runtime_setup;
 
 use anyhow::Result;
+use crossbeam_channel::unbounded;
 
 use std::io;
 use std::path::PathBuf;
@@ -52,7 +53,11 @@ fn main() -> Result<()> {
     let opt = Opt::from_args();
     let mut audio: Audio<f32> = load_audio(&opt);
     audio.amplify_in_place(opt.amplitude);
-    player::play_audio(audio);
+    let spec = audio.spec;
+    let (tx, rx) = unbounded::<Audio<f32>>();
+    tx.send(audio)?;
+    drop(tx);
+    player::play_audio(spec, rx);
     Ok(())
 }
 

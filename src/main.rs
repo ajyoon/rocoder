@@ -9,6 +9,7 @@ use rocoder::windows;
 
 use anyhow::Result;
 use async_std;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use futures::executor::block_on;
 use futures::future;
 
@@ -43,7 +44,7 @@ struct Opt {
 
     #[structopt(
         long = "freq-kernel",
-        help = "Path to an OpenCL frequency kernel file",
+        help = "Path to a rust frequency kernel file",
         parse(from_os_str)
     )]
     freq_kernel: Option<PathBuf>,
@@ -105,9 +106,7 @@ async fn async_main() -> Result<()> {
                     opt.pitch_multiple,
                     window.clone(),
                     i.to_string(),
-                    opt.freq_kernel
-                        .as_ref()
-                        .map(|p| std::fs::read_to_string(p).unwrap()),
+                    opt.freq_kernel.clone(),
                 )
             })
             .map(async_std::task::spawn),
@@ -161,7 +160,11 @@ fn handle_result(opt: &Opt, mut output_audio: Audio<f32>) -> Result<()> {
             writer.finalize().unwrap();
         }
         None => {
-            player::play_audio(output_audio);
+            let spec = output_audio.spec;
+            let (tx, rx) = bounded::<Audio<f32>>(10);
+            tx.send(output_audio);
+            drop(tx);
+            player::play_audio(spec, rx);
         }
     }
     Ok(())

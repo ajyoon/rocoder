@@ -1,43 +1,51 @@
+use crate::hotswapper;
 use anyhow::Result;
+use crossbeam_channel::Receiver;
+use libloading::{Library, Symbol};
 use rand::Rng;
 use rustfft::num_complex::Complex32;
 use rustfft::num_traits::Zero;
 use rustfft::{FFTplanner, FFT};
 use std::f32;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 const TWO_PI: f32 = f32::consts::PI;
 
 pub struct ReFFT {
-    sample_rate: u32,
+    sample_rate: usize,
     forward_fft: Arc<dyn FFT<f32>>,
     inverse_fft: Arc<dyn FFT<f32>>,
     window_len: usize,
     window: Vec<f32>,
+    kernel_recv: Option<Receiver<Library>>,
+    kernel: Option<Library>,
 }
 
 impl ReFFT {
-    pub fn new(sample_rate: u32, window: Vec<f32>, kernel_src: Option<String>) -> ReFFT {
+    pub fn new(sample_rate: usize, window: Vec<f32>, kernel_src: Option<PathBuf>) -> ReFFT {
         let window_len = window.len();
         let mut forward_planner = FFTplanner::new(false);
         let forward_fft = forward_planner.plan_fft(window_len);
         let mut inverse_planner: FFTplanner<f32> = FFTplanner::new(true);
         let inverse_fft = inverse_planner.plan_fft(window_len);
+        let kernel_recv = kernel_src.map(|src| hotswapper::hotswap(src).unwrap());
         ReFFT {
             sample_rate,
             forward_fft,
             inverse_fft,
             window_len,
             window,
+            kernel_recv,
+            kernel: None,
         }
     }
 
-    pub fn resynth(&self, dest_sample_pos: usize, samples: &[f32]) -> Vec<f32> {
+    pub fn resynth(&mut self, dest_sample_pos: usize, samples: &[f32]) -> Vec<f32> {
         let mut fft_result = self.forward_fft(samples);
-        // if self.kernel_program.is_some() {
-        //     self.apply_opencl_kernel_to_fft_result(dest_sample_pos, &mut fft_result)
-        //         .unwrap();
-        // }
+        if self.kernel_recv.is_some() {
+            self.apply_kernel_to_fft_result(dest_sample_pos, &mut fft_result);
+        }
         self.resynth_from_fft_result(fft_result)
     }
 
@@ -74,19 +82,28 @@ impl ReFFT {
             .collect()
     }
 
-    // fn apply_opencl_kernel_to_fft_result(
-    //     &self,
-    //     dest_sample_pos: usize,
-    //     fft_result: &mut Vec<Complex32>,
-    // ) -> Result<()> {
-    //     self.kernel_program
-    //         .as_ref()
-    //         .unwrap()
-    //         .apply_fft_transform(
-    //             fft_result,
-    //             (dest_sample_pos as u32 * 1000) / self.sample_rate,
-    //         )
-    //         .unwrap();
-    //     Ok(())
-    // }
+    fn apply_kernel_to_fft_result(
+        &mut self,
+        dest_sample_pos: usize,
+        fft_result: &mut Vec<Complex32>,
+    ) -> Result<()> {
+        if let Ok(lib) = self.kernel_recv.as_ref().unwrap().try_recv() {
+            self.kernel = Some(lib)
+        }
+        if let Some(lib) = &self.kernel {
+            let time_ms = (dest_sample_pos as usize * 1000) / self.sample_rate;
+            let symbol: Symbol<fn(usize, Vec<(f32, f32)>) -> Vec<(f32, f32)>> =
+                unsafe { lib.get(b"apply\0").unwrap() };
+            let kernel_input = fft_result.iter().map(|c| (c.re, c.im)).collect();
+            let kernel_output = symbol(time_ms, kernel_input);
+            for i in 0..fft_result.len() {
+                let out = kernel_output[i];
+                fft_result[i] = Complex32 {
+                    re: out.0,
+                    im: out.1,
+                };
+            }
+        }
+        Ok(())
+    }
 }
