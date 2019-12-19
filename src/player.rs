@@ -106,11 +106,7 @@ where
         return;
     }
     println!("\nGot quit signal, fading out audio for {:#?}", QUIT_FADE);
-    // nb fade doesnt work with streaming model yet
-    // let mut audio = audio_arc.lock().unwrap();
-    // let fade_out_start = audio.sample_to_duration(total_playback_pos.load(Ordering::SeqCst));
-    // audio.fade_out(fade_out_start, QUIT_FADE);
-    // drop(audio);
+    mixer_arc.lock().unwrap().fade_from_now(0.0, QUIT_FADE);
     let quit_counter_2 = Arc::clone(&quit_counter);
     thread::spawn(move || {
         thread::sleep(QUIT_FADE + Duration::from_millis(50));
