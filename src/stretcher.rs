@@ -1,164 +1,135 @@
+use crate::audio::{Audio, AudioSpec, Sample};
 use crate::crossfade;
 use crate::fft::ReFFT;
 use crate::resampler;
+use anyhow::Result;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use std::cmp;
+use std::default::Default;
 use std::path::PathBuf;
+use std::thread;
 use std::time::Duration;
 use stopwatch::Stopwatch;
 
-pub async fn stretch(
-    sample_rate: u32,
-    samples: Vec<f32>,
-    factor: f32,
-    amplitude: f32,
+/// concurrent vocoder for one channel of audio
+pub struct Stretcher {
+    spec: AudioSpec,
+    input: Receiver<Vec<f32>>,
+    input_buf: Vec<f32>,
+    input_buf_pos: usize,
+    output_buf: Vec<f32>,
+    output_buf_pos: usize,
+    pitch_shifted_factor: f32,
+    corrected_amp_factor: f32,
     pitch_multiple: i8,
-    window: Vec<f32>,
-    channel_name: String,
-    frequency_kernel_src: Option<PathBuf>,
-) -> Vec<f32> {
-    debug_assert!(pitch_multiple != 0);
-    let pitch_shifted_factor = if pitch_multiple < 0 {
-        factor / pitch_multiple.abs() as f32
-    } else {
-        factor * pitch_multiple.abs() as f32
-    };
-
-    let stretched = stretch_without_pitch_shift(
-        sample_rate,
-        samples,
-        pitch_shifted_factor,
-        amplitude,
-        window,
-        channel_name,
-        frequency_kernel_src,
-    )
-    .await;
-    if pitch_multiple == 1 {
-        stretched
-    } else {
-        resampler::resample(stretched, pitch_multiple)
-    }
+    amp_correction_envelope: Vec<f32>,
+    re_fft: ReFFT,
+    window_len: usize,
+    half_window_len: usize,
+    sample_step_len: usize,
+    done: bool,
 }
 
-async fn stretch_without_pitch_shift(
-    sample_rate: u32,
-    samples: Vec<f32>,
-    factor: f32,
-    amplitude: f32,
-    window: Vec<f32>,
-    channel_name: String,
-    frequency_kernel_src: Option<PathBuf>,
-) -> Vec<f32> {
-    let window_size = window.len();
-    let half_window_size = window_size / 2;
-    let amp_correction_envelope = crossfade::hanning_crossfade_compensation(half_window_size);
-    let mut re_fft = ReFFT::new(sample_rate as usize, window, frequency_kernel_src);
-    let sample_step_size = (window_size as f32 / (factor * 2.0)) as usize;
-    let mut previous_fft_result = vec![0.0; window_size];
-    let mut output = vec![];
-    let mut stats = Stats::new(
-        sample_rate,
-        Duration::from_secs(1),
-        Some((samples.len() as f32 * factor) as usize),
-        channel_name,
-    );
-
-    // correct for power lost in resynth - correction curve approx by trial and error
-    let amp_factor = (4f32).max(factor / 4.0) * amplitude;
-
-    for start_pos in (0..samples.len()).step_by(sample_step_size) {
-        let samples_end_idx = cmp::min(samples.len(), start_pos + window_size);
-        // todo output.len() here is not actually the dest sample pos due to pitch shift
-        let fft_result = re_fft.resynth(output.len(), &samples[start_pos..samples_end_idx]);
-        let step_output: Vec<f32> = (0..half_window_size)
-            .map(|i| {
-                (previous_fft_result.get(half_window_size + i).unwrap()
-                    + fft_result.get(i).unwrap())
-                    * amp_correction_envelope[i]
-                    * amp_factor
-            })
-            .collect();
-        stats.collect(step_output.len());
-        output.extend(step_output);
-        previous_fft_result = fft_result;
-    }
-
-    output
-}
-
-struct Stats {
-    sample_rate: u32,
-    report_interval: Duration,
-    total_samples: Option<usize>,
-    interval_timer: Stopwatch,
-    samples_generated_in_interval: usize,
-    total_samples_generated: usize,
-    channel_name: String,
-}
-
-impl Stats {
-    fn new(
-        sample_rate: u32,
-        report_interval: Duration,
-        total_samples: Option<usize>,
-        channel_name: String,
-    ) -> Stats {
-        Stats {
-            sample_rate,
-            report_interval,
-            total_samples,
-            channel_name,
-            interval_timer: Stopwatch::new(),
-            samples_generated_in_interval: 0,
-            total_samples_generated: 0,
+impl Stretcher {
+    pub fn new(
+        spec: AudioSpec,
+        input: Receiver<Vec<f32>>,
+        factor: f32,
+        amplitude: f32,
+        pitch_multiple: i8,
+        window: Vec<f32>,
+        frequency_kernel_src: Option<PathBuf>,
+    ) -> Stretcher {
+        assert!(pitch_multiple != 0);
+        let pitch_shifted_factor = if pitch_multiple < 0 {
+            factor / pitch_multiple.abs() as f32
+        } else {
+            factor * pitch_multiple.abs() as f32
+        };
+        // correct for power lost in resynth - correction curve approx by trial and error
+        let corrected_amp_factor = (4f32).max(pitch_shifted_factor / 4.0) * amplitude;
+        let window_len = window.len();
+        let half_window_len = window_len / 2;
+        let sample_step_len = (window_len as f32 / (pitch_shifted_factor * 2.0)) as usize;
+        let amp_correction_envelope = crossfade::hanning_crossfade_compensation(window.len() / 2);
+        let re_fft = ReFFT::new(spec.sample_rate as usize, window, frequency_kernel_src);
+        Stretcher {
+            spec,
+            input,
+            pitch_shifted_factor,
+            corrected_amp_factor,
+            pitch_multiple,
+            amp_correction_envelope,
+            re_fft,
+            window_len,
+            half_window_len,
+            sample_step_len,
+            input_buf: vec![],
+            input_buf_pos: 0,
+            output_buf: vec![0.0; half_window_len],
+            output_buf_pos: 0,
+            done: false,
         }
     }
 
-    fn collect(&mut self, samples_generated: usize) {
-        if !self.interval_timer.is_running() {
-            self.start_interval();
-        }
-        self.total_samples_generated += samples_generated;
-        self.samples_generated_in_interval += samples_generated;
-        if self.interval_timer.elapsed() > self.report_interval {
-            self.report();
-            self.start_interval();
-        }
-    }
-
-    fn start_interval(&mut self) {
-        self.interval_timer = Stopwatch::start_new();
-        self.samples_generated_in_interval = 0;
-    }
-
-    fn report(&mut self) {
-        let elapsed_ms = self.interval_timer.elapsed_ms();
-        let samples_per_second =
-            (self.samples_generated_in_interval as f32 / (elapsed_ms as f32 / 1000.0)) as u32;
-        let realtime_factor = samples_per_second / self.sample_rate;
-        let progress_percent = self
-            .total_samples
-            .map(|t| (self.total_samples_generated as f32 / t as f32) * 100.0);
-        let approx_secs_remaining = self
-            .total_samples
-            .map(|t| (t - self.total_samples_generated) / samples_per_second as usize);
-
-        let speed_msg = format!(
-            "{}k samples / sec ({:.1}x)",
-            samples_per_second / 1000,
-            realtime_factor
-        );
-        let progress_msg = self.total_samples.map_or("".to_owned(), |_| {
-            format!(
-                "; {:.1}%, ~{}s remaining",
-                progress_percent.unwrap(),
-                approx_secs_remaining.unwrap()
-            )
+    pub fn into_thread(mut self) -> Receiver<Vec<f32>> {
+        let (tx, rx) = bounded(4);
+        thread::spawn(move || {
+            while !self.done {
+                tx.send(self.next_window()).unwrap();
+            }
         });
+        rx
+    }
 
-        println!(
-            "Channel {}: {}{}",
-            self.channel_name, speed_msg, progress_msg
+    pub fn next_window(&mut self) -> Vec<f32> {
+        let samples_needed = if self.pitch_multiple < 0 {
+            (self.window_len as f32 / self.pitch_multiple.abs() as f32).ceil() as usize
+        } else {
+            self.window_len * self.pitch_multiple.abs() as usize
+        };
+
+        // generate samples such that output_buf.len() >= self.output_buf_pos + samples_needed
+        while self.output_buf.len() < self.output_buf_pos + samples_needed {
+            self.ensure_input_samples_available(self.window_len);
+            let input_end_idx = self.input_buf_pos + self.window_len;
+            let fft_result = self
+                .re_fft
+                .resynth(&self.input_buf[self.input_buf_pos..input_end_idx]);
+            self.output_buf
+                .resize(self.output_buf.len() + self.half_window_len, 0.0);
+            for i in 0..self.half_window_len {
+                self.output_buf[self.output_buf_pos + i] = (fft_result[i]
+                    + self.output_buf[self.output_buf_pos + i])
+                    * self.amp_correction_envelope[i]
+                    * self.corrected_amp_factor;
+            }
+            self.output_buf
+                .extend_from_slice(&fft_result[self.half_window_len..]);
+            self.input_buf_pos += self.sample_step_len;
+        }
+
+        let result = resampler::resample(
+            &self.output_buf[self.output_buf_pos..self.output_buf_pos + samples_needed],
+            self.pitch_multiple,
         );
+        self.output_buf_pos += samples_needed;
+
+        debug_assert!(result.len() == self.window_len);
+        result
+    }
+
+    pub fn ensure_input_samples_available(&mut self, n: usize) {
+        while self.input_buf_pos + n > self.input_buf.len() {
+            match self.input.recv() {
+                Ok(chunk) => {
+                    self.input_buf.extend(chunk);
+                }
+                Err(_) => {
+                    self.input_buf.resize(self.input_buf_pos + n, 0.0);
+                    self.done = true;
+                }
+            }
+        }
     }
 }

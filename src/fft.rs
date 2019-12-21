@@ -9,6 +9,7 @@ use rustfft::{FFTplanner, FFT};
 use std::f32;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const TWO_PI: f32 = f32::consts::PI;
 
@@ -41,10 +42,10 @@ impl ReFFT {
         }
     }
 
-    pub fn resynth(&mut self, dest_sample_pos: usize, samples: &[f32]) -> Vec<f32> {
+    pub fn resynth(&mut self, samples: &[f32]) -> Vec<f32> {
         let mut fft_result = self.forward_fft(samples);
         if self.kernel_recv.is_some() {
-            self.apply_kernel_to_fft_result(dest_sample_pos, &mut fft_result)
+            self.apply_kernel_to_fft_result(&mut fft_result)
                 .unwrap_or_else(|_| {
                     warn!("failed to apply kernel to fft result");
                 });
@@ -85,16 +86,12 @@ impl ReFFT {
             .collect()
     }
 
-    fn apply_kernel_to_fft_result(
-        &mut self,
-        dest_sample_pos: usize,
-        fft_result: &mut Vec<Complex32>,
-    ) -> Result<()> {
+    fn apply_kernel_to_fft_result(&mut self, fft_result: &mut Vec<Complex32>) -> Result<()> {
         if let Ok(lib) = self.kernel_recv.as_ref().unwrap().try_recv() {
             self.kernel = Some(lib)
         }
         if let Some(lib) = &self.kernel {
-            let time_ms = (dest_sample_pos as usize * 1000) / self.sample_rate;
+            let time_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as usize;
             let symbol: Symbol<fn(usize, Vec<(f32, f32)>) -> Vec<(f32, f32)>> =
                 unsafe { lib.get(b"apply\0").unwrap() };
             let kernel_input = fft_result.iter().map(|c| (c.re, c.im)).collect();

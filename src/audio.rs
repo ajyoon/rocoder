@@ -1,6 +1,8 @@
 use crate::math;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use num_traits::Num;
 use std::ops::MulAssign;
+use std::thread;
 use std::time::Duration;
 
 pub trait Sample: Sized + Num + Copy + MulAssign + Send + 'static {
@@ -179,6 +181,54 @@ where
 
     pub fn sample_to_duration(&self, sample: usize) -> Duration {
         Duration::from_secs_f32(sample as f32 / self.spec.sample_rate as f32)
+    }
+}
+
+pub struct InternalAudioBus {
+    pub spec: AudioSpec,
+    pub channels: Vec<Receiver<Vec<f32>>>,
+}
+
+impl InternalAudioBus {
+    /// quick and dirty collapse into audio
+    pub fn into_audio(self) -> Audio<f32> {
+        assert!(self.channels.len() as u16 == self.spec.channels);
+        Audio {
+            spec: self.spec,
+            data: self
+                .channels
+                .into_iter()
+                .map(|rx| {
+                    let mut result = vec![];
+                    for chunk in rx {
+                        result.extend(chunk);
+                    }
+                    result
+                })
+                .collect(),
+        }
+    }
+
+    pub fn into_chunk_rx(self) -> Receiver<Audio<f32>> {
+        let (tx, rx) = bounded(4);
+        thread::spawn(move || loop {
+            let mut chunk = Vec::with_capacity(self.spec.channels as usize);
+            for channel_rx in &self.channels {
+                match channel_rx.recv() {
+                    Ok(data) => {
+                        chunk.push(data);
+                    }
+                    Err(_) => {
+                        return;
+                    }
+                }
+            }
+            tx.send(Audio {
+                spec: self.spec,
+                data: chunk,
+            });
+        });
+        rx
     }
 }
 

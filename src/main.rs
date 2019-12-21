@@ -1,17 +1,14 @@
-use rocoder::audio::{Audio, AudioSpec};
+use rocoder::audio::{Audio, AudioSpec, InternalAudioBus};
 use rocoder::audio_files::{AudioReader, AudioWriter, WavReader, WavWriter};
 use rocoder::duration_parser;
 use rocoder::player;
 use rocoder::recorder;
 use rocoder::runtime_setup;
-use rocoder::stretcher;
+use rocoder::stretcher::Stretcher;
 use rocoder::windows;
 
 use anyhow::Result;
-use async_std;
 use crossbeam_channel::bounded;
-use futures::executor::block_on;
-use futures::future;
 
 use std::io;
 use std::path::PathBuf;
@@ -81,10 +78,6 @@ struct Opt {
 }
 
 fn main() -> Result<()> {
-    block_on(async_main())
-}
-
-async fn async_main() -> Result<()> {
     runtime_setup::setup_logging();
     let opt = Opt::from_args();
 
@@ -92,31 +85,30 @@ async fn async_main() -> Result<()> {
     let spec = audio.spec;
     let window = windows::hanning(opt.window_len);
 
-    let output_channels: Vec<Vec<f32>> = future::join_all(
-        audio
-            .data
-            .into_iter()
-            .enumerate()
-            .map(|(i, channel_samples)| {
-                stretcher::stretch(
-                    spec.sample_rate,
-                    channel_samples,
-                    opt.factor,
-                    opt.amplitude,
-                    opt.pitch_multiple,
-                    window.clone(),
-                    i.to_string(),
-                    opt.freq_kernel.clone(),
-                )
-            })
-            .map(async_std::task::spawn),
-    )
-    .await;
-    let output_audio = Audio {
-        data: output_channels,
+    let channel_receivers = audio
+        .data
+        .into_iter()
+        .map(|channel| {
+            let (stretcher_in_tx, stretcher_in_rx) = bounded(5);
+            let stretcher = Stretcher::new(
+                spec,
+                stretcher_in_rx,
+                opt.factor,
+                opt.amplitude,
+                opt.pitch_multiple,
+                window.clone(),
+                opt.freq_kernel.clone(),
+            );
+            stretcher_in_tx.send(channel);
+            stretcher.into_thread()
+        })
+        .collect();
+
+    let bus = InternalAudioBus {
         spec,
+        channels: channel_receivers,
     };
-    handle_result(&opt, output_audio)?;
+    handle_result(&opt, bus, None)?;
     Ok(())
 }
 
@@ -150,22 +142,22 @@ fn load_audio(opt: &Opt) -> Audio<f32> {
     audio
 }
 
-fn handle_result(opt: &Opt, mut output_audio: Audio<f32>) -> Result<()> {
-    output_audio.fade_in(Duration::from_secs(0), opt.fade);
-    output_audio.fade_out(output_audio.duration() - opt.fade, opt.fade);
+fn handle_result(
+    opt: &Opt,
+    audio_bus: InternalAudioBus,
+    total_samples_len: Option<usize>,
+) -> Result<()> {
     match &opt.output {
         Some(path) => {
+            let output_audio = audio_bus.into_audio();
             let mut writer = WavWriter::open(path.to_str().unwrap(), output_audio.spec).unwrap();
             writer.write_into_channels(output_audio.data)?;
             writer.finalize().unwrap();
         }
         None => {
-            let spec = output_audio.spec;
-            let total_samples_len = output_audio.data[0].len();
-            let (tx, rx) = bounded::<Audio<f32>>(10);
-            tx.send(output_audio)?;
-            drop(tx);
-            player::play_audio(spec, rx, Some(total_samples_len));
+            let spec = audio_bus.spec;
+            let rx = audio_bus.into_chunk_rx();
+            player::play_audio(spec, rx, total_samples_len);
         }
     }
     Ok(())
