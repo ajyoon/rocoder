@@ -60,6 +60,8 @@ fn compile(path: &Path) -> Result<Library> {
     let compile_output = Command::new("rustc")
         .arg("--color")
         .arg("always")
+        .arg("-A")
+        .arg("warnings")
         .arg("--codegen")
         .arg("opt-level=3")
         .arg("--crate-type")

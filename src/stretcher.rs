@@ -11,6 +11,8 @@ use std::thread;
 use std::time::Duration;
 use stopwatch::Stopwatch;
 
+const BUFFER_DUR: Duration = Duration::from_millis(500);
+
 /// concurrent vocoder for one channel of audio
 pub struct Stretcher {
     spec: AudioSpec,
@@ -28,6 +30,7 @@ pub struct Stretcher {
     half_window_len: usize,
     sample_step_len: usize,
     done: bool,
+    buffer_dur: Duration,
 }
 
 impl Stretcher {
@@ -38,6 +41,7 @@ impl Stretcher {
         amplitude: f32,
         pitch_multiple: i8,
         window: Vec<f32>,
+        buffer_dur: Duration,
         frequency_kernel_src: Option<PathBuf>,
     ) -> Stretcher {
         assert!(pitch_multiple != 0);
@@ -64,6 +68,7 @@ impl Stretcher {
             window_len,
             half_window_len,
             sample_step_len,
+            buffer_dur,
             input_buf: vec![],
             input_buf_pos: 0,
             output_buf: vec![0.0; half_window_len],
@@ -72,8 +77,13 @@ impl Stretcher {
         }
     }
 
+    fn channel_bound(&self) -> usize {
+        ((self.window_len as f32 / self.spec.sample_rate as f32) / self.buffer_dur.as_secs_f32())
+            .ceil() as usize
+    }
+
     pub fn into_thread(mut self) -> Receiver<Vec<f32>> {
-        let (tx, rx) = bounded(4);
+        let (tx, rx) = bounded(self.channel_bound());
         thread::spawn(move || {
             while !self.done {
                 tx.send(self.next_window()).unwrap();
@@ -88,33 +98,31 @@ impl Stretcher {
         } else {
             self.window_len * self.pitch_multiple.abs() as usize
         };
-
-        // generate samples such that output_buf.len() >= self.output_buf_pos + samples_needed
-        while self.output_buf.len() < self.output_buf_pos + samples_needed {
+        let mut iter_output_buf_pos = self.output_buf_pos;
+        while self.output_buf.len() < self.output_buf_pos + samples_needed + self.half_window_len {
+            // Generate output one half-window at a time, with each step leaving a half window
+            // from the fade-out half of the window function for the next iteration to pick up.
             self.ensure_input_samples_available(self.window_len);
             let input_end_idx = self.input_buf_pos + self.window_len;
             let fft_result = self
                 .re_fft
                 .resynth(&self.input_buf[self.input_buf_pos..input_end_idx]);
-            self.output_buf
-                .resize(self.output_buf.len() + self.half_window_len, 0.0);
             for i in 0..self.half_window_len {
-                self.output_buf[self.output_buf_pos + i] = (fft_result[i]
-                    + self.output_buf[self.output_buf_pos + i])
+                self.output_buf[iter_output_buf_pos + i] = (fft_result[i]
+                    + self.output_buf[iter_output_buf_pos + i])
                     * self.amp_correction_envelope[i]
                     * self.corrected_amp_factor;
             }
             self.output_buf
                 .extend_from_slice(&fft_result[self.half_window_len..]);
+            iter_output_buf_pos += self.half_window_len;
             self.input_buf_pos += self.sample_step_len;
         }
-
         let result = resampler::resample(
             &self.output_buf[self.output_buf_pos..self.output_buf_pos + samples_needed],
             self.pitch_multiple,
         );
         self.output_buf_pos += samples_needed;
-
         debug_assert!(result.len() == self.window_len);
         result
     }

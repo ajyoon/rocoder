@@ -7,6 +7,7 @@ use rustfft::num_complex::Complex32;
 use rustfft::num_traits::Zero;
 use rustfft::{FFTplanner, FFT};
 use std::f32;
+use std::panic;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -20,7 +21,7 @@ pub struct ReFFT {
     window_len: usize,
     window: Vec<f32>,
     kernel_recv: Option<Receiver<Library>>,
-    kernel: Option<Library>,
+    kernels: Vec<Library>,
 }
 
 impl ReFFT {
@@ -38,17 +39,14 @@ impl ReFFT {
             window_len,
             window,
             kernel_recv,
-            kernel: None,
+            kernels: vec![],
         }
     }
 
     pub fn resynth(&mut self, samples: &[f32]) -> Vec<f32> {
         let mut fft_result = self.forward_fft(samples);
         if self.kernel_recv.is_some() {
-            self.apply_kernel_to_fft_result(&mut fft_result)
-                .unwrap_or_else(|_| {
-                    warn!("failed to apply kernel to fft result");
-                });
+            fft_result = self.apply_kernel_to_fft_result(fft_result);
         }
         self.resynth_from_fft_result(fft_result)
     }
@@ -86,24 +84,37 @@ impl ReFFT {
             .collect()
     }
 
-    fn apply_kernel_to_fft_result(&mut self, fft_result: &mut Vec<Complex32>) -> Result<()> {
+    fn apply_kernel_to_fft_result(&mut self, mut fft_result: Vec<Complex32>) -> Vec<Complex32> {
+        // use catch_unwind to make sure we dont use the new lib if its call panics
         if let Ok(lib) = self.kernel_recv.as_ref().unwrap().try_recv() {
-            self.kernel = Some(lib)
+            info!("Got new kernel");
+            self.kernels.push(lib);
         }
-        if let Some(lib) = &self.kernel {
-            let time_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as usize;
+        let maybe_lib = self.kernels.last();
+        if maybe_lib.is_none() {
+            return fft_result;
+        }
+        let kernel_input = fft_result.iter().map(|c| (c.re, c.im)).collect();
+        let lib = maybe_lib.unwrap();
+        match panic::catch_unwind(move || {
+            let time_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as usize;
             let symbol: Symbol<fn(usize, Vec<(f32, f32)>) -> Vec<(f32, f32)>> =
                 unsafe { lib.get(b"apply\0").unwrap() };
-            let kernel_input = fft_result.iter().map(|c| (c.re, c.im)).collect();
             let kernel_output = symbol(time_ms, kernel_input);
-            for i in 0..fft_result.len() {
-                let out = kernel_output[i];
-                fft_result[i] = Complex32 {
-                    re: out.0,
-                    im: out.1,
-                };
+            kernel_output
+                .iter()
+                .map(|c| Complex32 { re: c.0, im: c.1 })
+                .collect()
+        }) {
+            Ok(applied) => applied,
+            Err(_) => {
+                warn!("kernel panicked, retrying with last or noop.");
+                self.kernels.pop();
+                self.apply_kernel_to_fft_result(fft_result)
             }
         }
-        Ok(())
     }
 }

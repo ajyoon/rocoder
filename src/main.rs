@@ -8,7 +8,7 @@ use rocoder::stretcher::Stretcher;
 use rocoder::windows;
 
 use anyhow::Result;
-use crossbeam_channel::bounded;
+use crossbeam_channel::unbounded;
 
 use std::io;
 use std::path::PathBuf;
@@ -18,8 +18,16 @@ use structopt::{clap::AppSettings, StructOpt};
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rocoder", setting = AppSettings::AllowNegativeNumbers)]
 struct Opt {
-    #[structopt(short = "w", long = "window", default_value = "32768")]
+    #[structopt(short = "w", long = "window", default_value = "16384")]
     window_len: usize,
+
+    #[structopt(
+        short = "b", 
+        long = "buffer", 
+        default_value = "0.5", 
+        parse(try_from_str = duration_parser::parse_duration), 
+        help = "the maximum amount of audio to process ahead of time. this controls the response time to changes like kernel modifications.")]
+    buffer_dur: Duration,
 
     #[structopt(short = "f", long = "factor")]
     factor: f32,
@@ -89,7 +97,7 @@ fn main() -> Result<()> {
         .data
         .into_iter()
         .map(|channel| {
-            let (stretcher_in_tx, stretcher_in_rx) = bounded(5);
+            let (stretcher_in_tx, stretcher_in_rx) = unbounded();
             let stretcher = Stretcher::new(
                 spec,
                 stretcher_in_rx,
@@ -97,6 +105,7 @@ fn main() -> Result<()> {
                 opt.amplitude,
                 opt.pitch_multiple,
                 window.clone(),
+                opt.buffer_dur,
                 opt.freq_kernel.clone(),
             );
             stretcher_in_tx.send(channel);

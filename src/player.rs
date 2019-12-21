@@ -12,6 +12,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::Duration;
+use stopwatch::Stopwatch;
 
 use crate::audio::{Audio, AudioSpec, Sample};
 use crate::mixer::{Mixer, MixerState};
@@ -89,7 +90,6 @@ where
                     panic!("failed to fetch get audio stream: {:?}", e);
                 }
             };
-
             let mut mixer = mixer_arc.lock().unwrap();
             mixer.fill_buffer(&mut buffer);
         });
