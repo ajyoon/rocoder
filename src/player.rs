@@ -12,7 +12,6 @@ use std::sync::{
 };
 use std::thread;
 use std::time::Duration;
-use stopwatch::Stopwatch;
 
 use crate::audio::{Audio, AudioSpec, Sample};
 use crate::mixer::{Mixer, MixerState};

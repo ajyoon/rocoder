@@ -1,5 +1,5 @@
 use crate::math;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver};
 use num_traits::Num;
 use std::ops::MulAssign;
 use std::thread;
@@ -223,10 +223,16 @@ impl InternalAudioBus {
                     }
                 }
             }
-            tx.send(Audio {
-                spec: self.spec,
-                data: chunk,
-            });
+            if tx
+                .send(Audio {
+                    spec: self.spec,
+                    data: chunk,
+                })
+                .is_err()
+            {
+                info!("audio chunk channel hung up.");
+                return;
+            }
         });
         rx
     }

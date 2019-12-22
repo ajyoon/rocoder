@@ -15,6 +15,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 use structopt::{clap::AppSettings, StructOpt};
 
+#[macro_use]
+extern crate log;
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rocoder", setting = AppSettings::AllowNegativeNumbers)]
 struct Opt {
@@ -24,7 +27,7 @@ struct Opt {
     #[structopt(
         short = "b", 
         long = "buffer", 
-        default_value = "0.5", 
+        default_value = "1", 
         parse(try_from_str = duration_parser::parse_duration), 
         help = "the maximum amount of audio to process ahead of time. this controls the response time to changes like kernel modifications.")]
     buffer_dur: Duration,
@@ -108,7 +111,9 @@ fn main() -> Result<()> {
                 opt.buffer_dur,
                 opt.freq_kernel.clone(),
             );
-            stretcher_in_tx.send(channel);
+            if stretcher_in_tx.send(channel).is_err() {
+                warn!("failed to send channel data");
+            }
             stretcher.into_thread()
         })
         .collect();

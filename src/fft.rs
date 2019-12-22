@@ -1,5 +1,4 @@
 use crate::hotswapper;
-use anyhow::Result;
 use crossbeam_channel::Receiver;
 use libloading::{Library, Symbol};
 use rand::Rng;
@@ -15,7 +14,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const TWO_PI: f32 = f32::consts::PI;
 
 pub struct ReFFT {
-    sample_rate: usize,
     forward_fft: Arc<dyn FFT<f32>>,
     inverse_fft: Arc<dyn FFT<f32>>,
     window_len: usize,
@@ -25,7 +23,7 @@ pub struct ReFFT {
 }
 
 impl ReFFT {
-    pub fn new(sample_rate: usize, window: Vec<f32>, kernel_src: Option<PathBuf>) -> ReFFT {
+    pub fn new(window: Vec<f32>, kernel_src: Option<PathBuf>) -> ReFFT {
         let window_len = window.len();
         let mut forward_planner = FFTplanner::new(false);
         let forward_fft = forward_planner.plan_fft(window_len);
@@ -33,7 +31,6 @@ impl ReFFT {
         let inverse_fft = inverse_planner.plan_fft(window_len);
         let kernel_recv = kernel_src.map(|src| hotswapper::hotswap(src).unwrap());
         ReFFT {
-            sample_rate,
             forward_fft,
             inverse_fft,
             window_len,
@@ -84,7 +81,7 @@ impl ReFFT {
             .collect()
     }
 
-    fn apply_kernel_to_fft_result(&mut self, mut fft_result: Vec<Complex32>) -> Vec<Complex32> {
+    fn apply_kernel_to_fft_result(&mut self, fft_result: Vec<Complex32>) -> Vec<Complex32> {
         // use catch_unwind to make sure we dont use the new lib if its call panics
         if let Ok(lib) = self.kernel_recv.as_ref().unwrap().try_recv() {
             info!("Got new kernel");

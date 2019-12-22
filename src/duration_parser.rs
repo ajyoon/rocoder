@@ -1,31 +1,11 @@
 use std::time::Duration;
 
-use custom_error::custom_error;
+use anyhow::{bail, Result};
 
-custom_error! {pub ParseDurationError{message: String} = "Failed to parse a duration"}
-
-impl std::convert::From<std::num::ParseFloatError> for ParseDurationError {
-    fn from(_e: std::num::ParseFloatError) -> Self {
-        ParseDurationError {
-            message: "Invalid float value".to_string(),
-        }
-    }
-}
-
-impl std::convert::From<std::num::ParseIntError> for ParseDurationError {
-    fn from(_e: std::num::ParseIntError) -> Self {
-        ParseDurationError {
-            message: "Invalid int value".to_string(),
-        }
-    }
-}
-
-pub fn parse_duration(duration_str: &str) -> Result<Duration, ParseDurationError> {
+pub fn parse_duration(duration_str: &str) -> Result<Duration> {
     let parts: Vec<&str> = duration_str.rsplit(":").collect();
     if parts.len() > 3 || parts.len() < 1 {
-        return Err(ParseDurationError {
-            message: "Invalid duration specification".to_string(),
-        });
+        bail!("Invalid duration specification".to_string());
     }
     let seconds_str = parts.get(0).unwrap();
     let maybe_minutes_str = parts.get(1);
