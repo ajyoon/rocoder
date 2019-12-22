@@ -25,6 +25,8 @@ pub fn play_audio<T>(
     spec: AudioSpec,
     stream: Receiver<Audio<T>>,
     expected_total_samples: Option<usize>,
+    fade_in_dur: Option<Duration>,
+    fade_out_dur: Option<Duration>,
 ) where
     T: Sample,
 {
@@ -39,6 +41,12 @@ pub fn play_audio<T>(
         stream,
         expected_total_samples,
     )));
+    if fade_in_dur.is_some() || fade_out_dur.is_some() {
+        mixer_arc
+            .lock()
+            .unwrap()
+            .fade_in_out(fade_in_dur, fade_out_dur);
+    }
     let mixer_arc_for_run = Arc::clone(&mixer_arc);
 
     let host = cpal::default_host();

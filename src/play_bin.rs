@@ -58,7 +58,7 @@ fn main() -> Result<()> {
     let (tx, rx) = unbounded::<Audio<f32>>();
     tx.send(audio)?;
     drop(tx);
-    player::play_audio(spec, rx, Some(total_samples));
+    player::play_audio(spec, rx, Some(total_samples), None, None);
     Ok(())
 }
 
@@ -80,7 +80,6 @@ fn load_audio(opt: &Opt) -> Audio<f32> {
             }
         }
     };
-
     if opt.start.is_some() || opt.duration.is_some() {
         audio.clip_in_place(opt.start, opt.duration);
     }
@@ -88,6 +87,5 @@ fn load_audio(opt: &Opt) -> Audio<f32> {
     if opt.rotate_channels {
         audio.rotate_channels();
     }
-
     audio
 }

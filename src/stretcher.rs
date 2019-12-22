@@ -152,8 +152,8 @@ mod test {
     #[test]
     fn ensure_input_samples_available_loading_multiple_chunks() {
         let (mut stretcher, tx) = basic_stretcher(1000);
-        tx.send(vec![1.0, 2.0, 3.0]);
-        tx.send(vec![4.0, 5.0]);
+        tx.send(vec![1.0, 2.0, 3.0]).unwrap();
+        tx.send(vec![4.0, 5.0]).unwrap();
         stretcher.ensure_input_samples_available(4);
         assert_eq!(stretcher.done, false);
         assert_almost_eq_by_element(stretcher.input_buf.to_vec(), vec![1.0, 2.0, 3.0, 4.0, 5.0]);

@@ -158,15 +158,90 @@ where
         self.sort_keyframes();
     }
 
-    // pub fn fade(&mut self, start: Duration, start_val: f32, dur: Duration, end_val: f32) {
-    //     self.amp_keyframes.push(Keyframe {
-    //         sample_pos: (start.as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
-    //         val: start_val,
-    //     });
-    //     self.amp_keyframes.push(Keyframe {
-    //         sample_pos: ((start + dur).as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
-    //         val: end_val,
-    //     });
-    //     self.sort_keyframes();
-    // }
+    pub fn fade(&mut self, start: Duration, start_val: f32, dur: Duration, end_val: f32) {
+        self.amp_keyframes.push(Keyframe {
+            sample_pos: (start.as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
+            val: start_val,
+        });
+        self.amp_keyframes.push(Keyframe {
+            sample_pos: ((start + dur).as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
+            val: end_val,
+        });
+        self.sort_keyframes();
+    }
+
+    /// only fades out if both `fade_out_dur` and `self.expected_total_samples` are present
+    pub fn fade_in_out(&mut self, fade_in_dur: Option<Duration>, fade_out_dur: Option<Duration>) {
+        if fade_in_dur.is_some() {
+            self.fade(Duration::from_secs(0), 0.0, fade_in_dur.unwrap(), 1.0);
+        }
+        if fade_out_dur.is_some() && self.expected_total_samples.is_some() {
+            let total_dur = Duration::from_secs_f32(
+                self.expected_total_samples.unwrap() as f32 / self.audio_spec.sample_rate as f32,
+            );
+            let fade_start = total_dur - fade_out_dur.unwrap();
+            self.fade(fade_start, 1.0, fade_out_dur.unwrap(), 0.0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crossbeam_channel::{unbounded, Sender};
+
+    #[test]
+    fn prune_keyframes() {
+        // setup...
+        let (mut mixer, _) = basic_mixer();
+        assert!(mixer.amp_keyframes.is_empty());
+        mixer.amp_keyframes = vec![
+            basic_keyframe(4000),
+            basic_keyframe(1500),
+            basic_keyframe(1000),
+        ];
+
+        // Prune while playback pos is between or before the earliest 2
+        // keyframes is a no-op
+        mixer.total_samples_played = 900;
+        mixer.prune_keyframes();
+        assert_eq!(mixer.amp_keyframes.len(), 3);
+        mixer.total_samples_played = 1200;
+        mixer.prune_keyframes();
+        assert_eq!(mixer.amp_keyframes.len(), 3);
+
+        // Prune while playback pos is after earliest 2 keyframes will delete
+        // the earliest keyframe
+        mixer.total_samples_played = 2000;
+        mixer.prune_keyframes();
+        assert_eq!(mixer.amp_keyframes.len(), 2);
+        assert_eq!(mixer.amp_keyframes[0].sample_pos, 4000);
+        assert_eq!(mixer.amp_keyframes[1].sample_pos, 1500);
+
+        // Prune while playback pos is after all keyframes will leave just the last
+        mixer.total_samples_played = 5000;
+        mixer.prune_keyframes();
+        assert_eq!(mixer.amp_keyframes.len(), 1);
+        assert_eq!(mixer.amp_keyframes[0].sample_pos, 4000);
+    }
+
+    fn basic_mixer() -> (Mixer<f32>, Sender<Audio<f32>>) {
+        let (tx, rx) = unbounded();
+        let mixer = Mixer::new(
+            &AudioSpec {
+                channels: 2,
+                sample_rate: 44100,
+            },
+            rx,
+            None,
+        );
+        (mixer, tx)
+    }
+
+    fn basic_keyframe(sample_pos: usize) -> Keyframe {
+        Keyframe {
+            sample_pos,
+            val: 1.0,
+        }
+    }
 }

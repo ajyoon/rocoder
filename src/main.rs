@@ -172,7 +172,7 @@ fn handle_result(
         None => {
             let spec = audio_bus.spec;
             let rx = audio_bus.into_chunk_rx();
-            player::play_audio(spec, rx, total_samples_len);
+            player::play_audio(spec, rx, total_samples_len, Some(opt.fade), Some(opt.fade));
         }
     }
     Ok(())
