@@ -93,6 +93,7 @@ fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let audio = load_audio(&opt);
+    let total_samples_len = audio.data[0].len();
     let spec = audio.spec;
     let window = windows::hanning(opt.window_len);
 
@@ -122,7 +123,7 @@ fn main() -> Result<()> {
         spec,
         channels: channel_receivers,
     };
-    handle_result(&opt, bus, None)?;
+    handle_result(&opt, bus, Some((total_samples_len as f32 * opt.factor) as usize))?;
     Ok(())
 }
 
