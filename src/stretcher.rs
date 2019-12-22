@@ -7,6 +7,7 @@ use slice_deque::SliceDeque;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
+use stopwatch::Stopwatch;
 
 /// concurrent vocoder for one channel of audio
 pub struct Stretcher {
@@ -92,6 +93,7 @@ impl Stretcher {
 
     pub fn next_window(&mut self) -> Vec<f32> {
         debug_assert!(self.output_buf.len() == self.half_window_len);
+        let sw = Stopwatch::start_new();
         let mut iter_output_buf_pos = 0;
         while self.output_buf.len() < self.samples_needed_per_window + self.half_window_len {
             // Generate output one half-window at a time, with each step leaving a half window
@@ -116,6 +118,12 @@ impl Stretcher {
         );
         self.output_buf.truncate_front(self.half_window_len);
         debug_assert!(result.len() == self.window_len);
+        // debug!(
+        //     "generated {} sample window in {:?}, ({:.0}X)",
+        //     result.len(),
+        //     sw.elapsed(),
+        //     (result.len() as f32 / self.spec.sample_rate as f32) / sw.elapsed().as_secs_f32()
+        // );
         result
     }
 
