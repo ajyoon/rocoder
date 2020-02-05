@@ -1,5 +1,6 @@
 use crate::math;
-use crossbeam_channel::{bounded, Receiver};
+use anyhow::Result;
+use crossbeam_channel::{bounded, unbounded, Receiver};
 use num_traits::Num;
 use std::ops::MulAssign;
 use std::thread;
@@ -184,12 +185,14 @@ where
     }
 }
 
-pub struct InternalAudioBus {
+#[derive(Debug)]
+pub struct AudioBus {
     pub spec: AudioSpec,
     pub channels: Vec<Receiver<Vec<f32>>>,
+    pub expected_total_samples: Option<usize>,
 }
 
-impl InternalAudioBus {
+impl AudioBus {
     /// quick and dirty collapse into audio
     pub fn into_audio(self) -> Audio<f32> {
         assert!(self.channels.len() as u16 == self.spec.channels);
@@ -207,6 +210,36 @@ impl InternalAudioBus {
                 })
                 .collect(),
         }
+    }
+
+    pub fn from_audio(audio: Audio<f32>) -> Self {
+        let spec = audio.spec;
+        let expected_total_samples = Some(audio.data[0].len());
+        let channels: Vec<Receiver<Vec<f32>>> = audio
+            .data
+            .into_iter()
+            .map(|channel| {
+                let (tx, rx) = unbounded();
+                tx.send(channel);
+                rx
+            })
+            .collect();
+        AudioBus {
+            spec,
+            expected_total_samples,
+            channels,
+        }
+    }
+
+    pub fn collect_chunk(&mut self) -> Result<Audio<f32>> {
+        let mut chunk = Vec::with_capacity(self.spec.channels as usize);
+        for channel_rx in &self.channels {
+            chunk.push(channel_rx.recv()?)
+        }
+        Ok(Audio {
+            spec: self.spec,
+            data: chunk,
+        })
     }
 
     pub fn into_chunk_rx(self) -> Receiver<Audio<f32>> {

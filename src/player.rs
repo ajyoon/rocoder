@@ -79,7 +79,7 @@ fn playback_progress_bar() -> ProgressBar<std::io::Stdout> {
     progress_bar
 }
 
-fn launch_cpal_thread<T, E>(event_loop: Arc<E>, mixer_arc: Arc<Mutex<Mixer<T>>>)
+fn launch_cpal_thread<T, E>(event_loop: Arc<E>, mixer_arc: Arc<Mutex<Mixer>>)
 where
     T: Sample,
     E: EventLoopTrait + Send + Sync + 'static,
@@ -103,7 +103,7 @@ where
     });
 }
 
-fn control_c_handler<T>(quit_counter: &Arc<AtomicU16>, mixer_arc: &Arc<Mutex<Mixer<T>>>)
+fn control_c_handler<T>(quit_counter: &Arc<AtomicU16>, mixer_arc: &Arc<Mutex<Mixer>>)
 where
     T: Sample,
 {
@@ -122,7 +122,7 @@ where
 }
 
 fn wait_for_playback<T, E>(
-    mixer_arc: Arc<Mutex<Mixer<T>>>,
+    mixer_arc: Arc<Mutex<Mixer>>,
     event_loop: Arc<E>,
     output_stream_id: <E>::StreamId,
 ) where

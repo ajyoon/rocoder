@@ -1,6 +1,11 @@
-use crate::audio::{Audio, AudioSpec, Sample};
+use crate::audio::{Audio, AudioBus, AudioSpec, Sample};
 use crate::math;
+use crate::slices;
+use anyhow::{bail, Result};
 use std::cmp::{Ord, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{self, AtomicBool};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam_channel::Receiver;
@@ -31,80 +36,40 @@ impl Ord for Keyframe {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Ord, PartialOrd, Hash)]
-pub enum MixerState {
-    PLAYING,
-    DONE,
-}
-
-pub struct Mixer<T>
-where
-    T: Sample,
-{
-    pub state: MixerState,
-    chunk_receiver: Receiver<Audio<T>>,
-    audio_spec: AudioSpec,
-    buffer: Audio<T>,
-    buffer_pos: usize,
-    total_samples_played: usize,
-    expected_total_samples: Option<usize>,
+struct Layer {
+    bus: AudioBus,
     amp_keyframes: Vec<Keyframe>,
+    total_samples_mixed: usize,
+    buffer: Audio<f32>,
+    buffer_pos: usize,
+    shutdown_when_finished: bool,
 }
 
-impl<T> Mixer<T>
-where
-    T: Sample,
-{
-    pub fn new(
-        spec: &AudioSpec,
-        chunk_receiver: Receiver<Audio<T>>,
-        expected_total_samples: Option<usize>,
-    ) -> Self {
-        Mixer {
-            chunk_receiver,
-            expected_total_samples,
-            state: MixerState::PLAYING,
-            buffer: Audio::from_spec(spec),
-            audio_spec: *spec,
-            buffer_pos: 0,
-            total_samples_played: 0,
+impl Layer {
+    fn new(bus: AudioBus, shutdown_when_finished: bool) -> Self {
+        Layer {
+            buffer: Audio::from_spec(&bus.spec),
+            bus,
+            shutdown_when_finished,
             amp_keyframes: vec![],
+            total_samples_mixed: 0,
+            buffer_pos: 0,
         }
     }
 
-    pub fn fill_buffer(&mut self, out_buf: &mut [f32]) {
-        for buffer_interleaved_samples in out_buf.chunks_mut(self.buffer.spec.channels as usize) {
-            self.prune_keyframes();
-            if self.buffer_pos >= self.buffer.data[0].len() {
-                match self.chunk_receiver.recv() {
-                    Ok(new_audio) => {
-                        self.buffer = new_audio;
-                        self.buffer_pos = 0;
-                    }
-                    Err(_) => {
-                        self.state = MixerState::DONE;
-                    }
-                }
-            }
+    fn load_next_chunk(&mut self) -> Result<()> {
+        self.prune_keyframes();
+        let mut chunk = self.bus.collect_chunk()?;
+        for index in 0..chunk.data[0].len() {
             let amp = self.current_amp();
-            for (dest, src_channel) in buffer_interleaved_samples.iter_mut().zip(&self.buffer.data)
-            {
-                match src_channel.get(self.buffer_pos) {
-                    Some(sample) => *dest = (*sample).into_f32() * amp,
-                    None => {
-                        *dest = 0.0;
-                    }
-                }
+            for mut channel in chunk.data.iter_mut() {
+                channel[index] *= amp;
             }
-            self.buffer_pos += 1;
-            self.total_samples_played += 1;
+            self.total_samples_mixed += 1;
         }
-    }
-
-    /// If known, return total playback progress as a percent float
-    pub fn progress(&self) -> Option<f32> {
-        self.expected_total_samples
-            .map(|total| (self.total_samples_played as f32 / total as f32) * 100.0)
+        self.buffer = chunk;
+        self.buffer_pos = 0;
+        Ok(())
     }
 
     #[inline]
@@ -112,7 +77,7 @@ where
         loop {
             if self.amp_keyframes.len() > 1 {
                 if self.amp_keyframes[self.amp_keyframes.len() - 2].sample_pos
-                    < self.total_samples_played
+                    < self.total_samples_mixed
                 {
                     self.amp_keyframes.pop();
                     continue;
@@ -137,7 +102,7 @@ where
         } else {
             let prev = self.amp_keyframes[keyframe_len - 1];
             let next = self.amp_keyframes[keyframe_len - 2];
-            let progress = (self.total_samples_played - prev.sample_pos) as f32
+            let progress = (self.total_samples_mixed - prev.sample_pos) as f32
                 / (next.sample_pos - prev.sample_pos) as f32;
             math::sqrt_interp(prev.val, next.val, progress)
         }
@@ -147,12 +112,12 @@ where
         // assumes that no keyframes exist in the modified window
         let current_amp = self.current_amp();
         self.amp_keyframes.push(Keyframe {
-            sample_pos: self.total_samples_played,
+            sample_pos: self.total_samples_mixed,
             val: current_amp,
         });
         self.amp_keyframes.push(Keyframe {
-            sample_pos: self.total_samples_played
-                + (dur.as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
+            sample_pos: self.total_samples_mixed
+                + (dur.as_secs_f32() * self.bus.spec.sample_rate as f32) as usize,
             val: to,
         });
         self.sort_keyframes();
@@ -160,24 +125,24 @@ where
 
     pub fn fade(&mut self, start: Duration, start_val: f32, dur: Duration, end_val: f32) {
         self.amp_keyframes.push(Keyframe {
-            sample_pos: (start.as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
+            sample_pos: (start.as_secs_f32() * self.bus.spec.sample_rate as f32) as usize,
             val: start_val,
         });
         self.amp_keyframes.push(Keyframe {
-            sample_pos: ((start + dur).as_secs_f32() * self.audio_spec.sample_rate as f32) as usize,
+            sample_pos: ((start + dur).as_secs_f32() * self.bus.spec.sample_rate as f32) as usize,
             val: end_val,
         });
         self.sort_keyframes();
     }
 
-    /// only fades out if both `fade_out_dur` and `self.expected_total_samples` are present
+    /// only fades out if both `fade_out_dur` and `self.bus.expected_total_samples` are present
     pub fn fade_in_out(&mut self, fade_in_dur: Option<Duration>, fade_out_dur: Option<Duration>) {
         if fade_in_dur.is_some() {
             self.fade(Duration::from_secs(0), 0.0, fade_in_dur.unwrap(), 1.0);
         }
-        if fade_out_dur.is_some() && self.expected_total_samples.is_some() {
+        if fade_out_dur.is_some() && self.bus.expected_total_samples.is_some() {
             let total_dur = Duration::from_secs_f32(
-                self.expected_total_samples.unwrap() as f32 / self.audio_spec.sample_rate as f32,
+                self.bus.expected_total_samples.unwrap() as f32 / self.bus.spec.sample_rate as f32,
             );
             let fade_start = total_dur - fade_out_dur.unwrap();
             self.fade(fade_start, 1.0, fade_out_dur.unwrap(), 0.0);
@@ -185,17 +150,110 @@ where
     }
 }
 
+pub struct Mixer {
+    pub spec: AudioSpec,
+    pub finished_flag: Arc<AtomicBool>,
+    layers: HashMap<u32, Layer>,
+}
+
+impl Mixer {
+    pub fn new(spec: &AudioSpec) -> Self {
+        Mixer {
+            finished_flag: Arc::new(AtomicBool::from(false)),
+            spec: *spec,
+            layers: HashMap::new(),
+        }
+    }
+
+    pub fn fill_buffer(&mut self, out_buf: &mut [f32]) {
+        slices::zero_slice(out_buf);
+        for buffer_interleaved_samples in out_buf.chunks_mut(self.spec.channels as usize) {
+            // loop body covers 1 sample across all layers & channels
+            let mut closed_layer_ids: Vec<u32> = Vec::with_capacity(0);
+            for (layer_id, layer) in self.layers.iter_mut() {
+                if layer.buffer_pos >= layer.buffer.data[0].len() {
+                    // sets layer.buffer_pos = 0
+                    if layer.load_next_chunk().is_err() {
+                        if layer.shutdown_when_finished {
+                            info!("Layer finished and requested mixer shutdown; setting flag.");
+                            self.finished_flag.store(true, atomic::Ordering::SeqCst);
+                        }
+                        closed_layer_ids.push(*layer_id);
+                        continue;
+                    };
+                }
+                for (channel_idx, out_sample_channel) in
+                    buffer_interleaved_samples.iter_mut().enumerate()
+                {
+                    *out_sample_channel += layer.buffer.data[channel_idx][layer.buffer_pos];
+                }
+                layer.buffer_pos += 1;
+            }
+            if !closed_layer_ids.is_empty() {
+                for layer_id in closed_layer_ids.into_iter() {
+                    self.layers.remove(&layer_id);
+                }
+            }
+        }
+    }
+
+    pub fn insert_layer(
+        &mut self,
+        id: u32,
+        bus: AudioBus,
+        shutdown_when_finished: bool,
+    ) -> Result<()> {
+        let layer = Layer::new(bus, shutdown_when_finished);
+        self.layers.insert(id, layer);
+        Ok(())
+    }
+
+    pub fn fade_from_now(&mut self, id: u32, to: f32, dur: Duration) -> Result<()> {
+        match self.layers.get_mut(&id) {
+            Some(layer) => Ok(layer.fade_from_now(to, dur)),
+            None => bail!("Layer not found"),
+        }
+    }
+
+    pub fn fade(
+        &mut self,
+        id: u32,
+        start: Duration,
+        start_val: f32,
+        dur: Duration,
+        end_val: f32,
+    ) -> Result<()> {
+        match self.layers.get_mut(&id) {
+            Some(layer) => Ok(layer.fade(start, start_val, dur, end_val)),
+            None => bail!("Layer not found"),
+        }
+    }
+
+    /// only fades out if `fade_out_dur` is present and the layer in question has an expected duration
+    pub fn fade_in_out(
+        &mut self,
+        id: u32,
+        fade_in_dur: Option<Duration>,
+        fade_out_dur: Option<Duration>,
+    ) -> Result<()> {
+        match self.layers.get_mut(&id) {
+            Some(layer) => Ok(layer.fade_in_out(fade_in_dur, fade_out_dur)),
+            None => bail!("Layer not found"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use crossbeam_channel::{unbounded, Sender};
+    use crossbeam_channel::unbounded;
 
     #[test]
     fn prune_keyframes() {
         // setup...
-        let (mut mixer, _) = basic_mixer();
-        assert!(mixer.amp_keyframes.is_empty());
-        mixer.amp_keyframes = vec![
+        let mut layer = basic_layer();
+        assert!(layer.amp_keyframes.is_empty());
+        layer.amp_keyframes = vec![
             basic_keyframe(4000),
             basic_keyframe(1500),
             basic_keyframe(1000),
@@ -203,39 +261,40 @@ mod test {
 
         // Prune while playback pos is between or before the earliest 2
         // keyframes is a no-op
-        mixer.total_samples_played = 900;
-        mixer.prune_keyframes();
-        assert_eq!(mixer.amp_keyframes.len(), 3);
-        mixer.total_samples_played = 1200;
-        mixer.prune_keyframes();
-        assert_eq!(mixer.amp_keyframes.len(), 3);
+        layer.total_samples_mixed = 900;
+        layer.prune_keyframes();
+        assert_eq!(layer.amp_keyframes.len(), 3);
+        layer.total_samples_mixed = 1200;
+        layer.prune_keyframes();
+        assert_eq!(layer.amp_keyframes.len(), 3);
 
         // Prune while playback pos is after earliest 2 keyframes will delete
         // the earliest keyframe
-        mixer.total_samples_played = 2000;
-        mixer.prune_keyframes();
-        assert_eq!(mixer.amp_keyframes.len(), 2);
-        assert_eq!(mixer.amp_keyframes[0].sample_pos, 4000);
-        assert_eq!(mixer.amp_keyframes[1].sample_pos, 1500);
+        layer.total_samples_mixed = 2000;
+        layer.prune_keyframes();
+        assert_eq!(layer.amp_keyframes.len(), 2);
+        assert_eq!(layer.amp_keyframes[0].sample_pos, 4000);
+        assert_eq!(layer.amp_keyframes[1].sample_pos, 1500);
 
         // Prune while playback pos is after all keyframes will leave just the last
-        mixer.total_samples_played = 5000;
-        mixer.prune_keyframes();
-        assert_eq!(mixer.amp_keyframes.len(), 1);
-        assert_eq!(mixer.amp_keyframes[0].sample_pos, 4000);
+        layer.total_samples_mixed = 5000;
+        layer.prune_keyframes();
+        assert_eq!(layer.amp_keyframes.len(), 1);
+        assert_eq!(layer.amp_keyframes[0].sample_pos, 4000);
     }
 
-    fn basic_mixer() -> (Mixer<f32>, Sender<Audio<f32>>) {
-        let (tx, rx) = unbounded();
-        let mixer = Mixer::new(
-            &AudioSpec {
-                channels: 2,
-                sample_rate: 44100,
-            },
-            rx,
-            None,
-        );
-        (mixer, tx)
+    fn basic_layer() -> Layer {
+        let (_, rx) = unbounded();
+        let spec = AudioSpec {
+            channels: 2,
+            sample_rate: 44100,
+        };
+        let bus = AudioBus {
+            spec,
+            channels: vec![rx],
+            expected_total_samples: None,
+        };
+        Layer::new(bus, false)
     }
 
     fn basic_keyframe(sample_pos: usize) -> Keyframe {

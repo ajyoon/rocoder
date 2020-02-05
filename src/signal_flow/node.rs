@@ -25,20 +25,9 @@ where
     P: Processor<M>,
     M: ControlMessage,
 {
-    pub fn new(mut processor: P) -> Node<P, M> {
+    pub fn new(processor: P) -> Node<P, M> {
         let (control_message_sender, control_message_receiver) = unbounded::<M>();
-        let join_handle = thread::spawn(move || loop {
-            let state = processor
-                .handle_control_messages(&control_message_receiver)
-                .unwrap_or_else(|e| {
-                    error!("{:?}", e);
-                    ProcessorState::Running
-                });
-            if let ProcessorState::Finished = state {
-                break;
-            }
-            processor.process().unwrap_or_else(|e| error!("{:?}", e));
-        });
+        let join_handle = processor.start(control_message_receiver);
         Node {
             control_message_sender,
             join_handle,
@@ -66,6 +55,8 @@ pub trait Processor<M>: Sized + Send + 'static
 where
     M: ControlMessage,
 {
+    fn start(self, rx: Receiver<M>) -> JoinHandle<()>;
+
     /// Handle control messages, if any are ready.
     ///
     /// When receiving messages, be sure to use `rx.try_recv()` to ensure
@@ -75,11 +66,6 @@ where
     /// Otherwise return `Ok(ProcessorState::Running)`. If fatal unexpected errors
     /// occur, return the error.
     fn handle_control_messages(&mut self, rx: &Receiver<M>) -> Result<ProcessorState>;
-
-    /// Perform a step of processing.
-    ///
-    /// Note that control messages will not be checked until
-    fn process(&mut self) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -107,6 +93,19 @@ mod test {
     struct TestProcessor {}
 
     impl Processor<TestControlMessage> for TestProcessor {
+        fn start(mut self, rx: Receiver<TestControlMessage>) -> JoinHandle<()> {
+            thread::spawn(move || loop {
+                let state = self.handle_control_messages(&rx).unwrap_or_else(|e| {
+                    error!("{:?}", e);
+                    ProcessorState::Running
+                });
+                if let ProcessorState::Finished = state {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10))
+            })
+        }
+
         fn handle_control_messages(
             &mut self,
             rx: &Receiver<TestControlMessage>,
@@ -118,11 +117,6 @@ mod test {
                 Err(TryRecvError::Disconnected) => Ok(ProcessorState::Finished),
                 _ => Ok(ProcessorState::Finished),
             }
-        }
-
-        fn process(&mut self) -> Result<()> {
-            thread::sleep(Duration::from_millis(10));
-            Ok(())
         }
     }
 }

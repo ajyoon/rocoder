@@ -1,11 +1,12 @@
-use rocoder::audio::{Audio, AudioSpec, InternalAudioBus};
+use rocoder::audio::{Audio, AudioSpec, AudioBus};
 use rocoder::audio_files::{AudioReader, AudioWriter, WavReader, WavWriter};
 use rocoder::duration_parser;
-use rocoder::player;
 use rocoder::recorder;
 use rocoder::runtime_setup;
 use rocoder::stretcher::Stretcher;
 use rocoder::windows;
+use rocoder::signal_flow::node::Processor;
+use rocoder::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
 
 use anyhow::Result;
 use crossbeam_channel::unbounded;
@@ -119,11 +120,13 @@ fn main() -> Result<()> {
         })
         .collect();
 
-    let bus = InternalAudioBus {
+    let expected_total_samples = Some((total_samples_len as f32 * opt.factor) as usize);
+    let bus = AudioBus {
         spec,
+        expected_total_samples,
         channels: channel_receivers,
     };
-    handle_result(&opt, bus, Some((total_samples_len as f32 * opt.factor) as usize))?;
+    handle_result(&opt, bus)?;
     Ok(())
 }
 
@@ -159,8 +162,7 @@ fn load_audio(opt: &Opt) -> Audio<f32> {
 
 fn handle_result(
     opt: &Opt,
-    audio_bus: InternalAudioBus,
-    total_samples_len: Option<usize>,
+    audio_bus: AudioBus,
 ) -> Result<()> {
     match &opt.output {
         Some(path) => {
@@ -170,9 +172,16 @@ fn handle_result(
             writer.finalize().unwrap();
         }
         None => {
-            let spec = audio_bus.spec;
-            let rx = audio_bus.into_chunk_rx();
-            player::play_audio(spec, rx, total_samples_len, Some(opt.fade), Some(opt.fade));
+            let player = AudioOutputProcessor::new(audio_bus.spec, audio_bus.expected_total_samples);
+            let (player_ctrl_tx, player_ctrl_rx) = unbounded();
+            let player_join_handle = player.start(player_ctrl_rx);
+            player_ctrl_tx.send(AudioOutputProcessorControlMessage::ConnectBus {
+                id: 0,
+                bus: audio_bus,
+                fade: Some(opt.fade),
+                shutdown_when_finished: true,
+            }).unwrap();
+            player_join_handle.join().unwrap();
         }
     }
     Ok(())
