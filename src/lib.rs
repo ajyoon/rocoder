@@ -19,6 +19,7 @@ pub mod hotswapper;
 pub mod math;
 pub mod player_processor;
 pub mod recorder;
+pub mod recorder_processor;
 pub mod runtime_setup;
 pub mod signal_flow;
 pub mod stretcher;

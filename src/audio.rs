@@ -1,6 +1,6 @@
 use crate::math;
 use anyhow::Result;
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use num_traits::Num;
 use std::ops::MulAssign;
 use std::time::Duration;
@@ -228,6 +228,27 @@ impl AudioBus {
             expected_total_samples,
             channels,
         }
+    }
+
+    pub fn from_spec(
+        spec: AudioSpec,
+        expected_total_samples: Option<usize>,
+    ) -> (Self, Vec<Sender<Vec<f32>>>) {
+        let mut senders = vec![];
+        let mut receivers = vec![];
+        for _ in 0..spec.channels {
+            let (tx, rx) = unbounded();
+            senders.push(tx);
+            receivers.push(rx);
+        }
+        (
+            AudioBus {
+                spec,
+                expected_total_samples,
+                channels: receivers,
+            },
+            senders,
+        )
     }
 
     pub fn collect_chunk(&mut self) -> Result<Audio<f32>> {
