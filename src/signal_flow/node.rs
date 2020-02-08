@@ -1,10 +1,10 @@
 use anyhow::Result;
-use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
+use crossbeam_channel::{Receiver, Sender};
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 pub trait ControlMessage: Send + Sync + Debug + 'static {
     fn shutdown_msg() -> Self;
@@ -18,6 +18,7 @@ where
     control_message_sender: Sender<M>,
     join_handle: JoinHandle<()>,
     phantom: PhantomData<P>,
+    finished: Arc<AtomicBool>,
 }
 
 impl<P, M> Node<P, M>
@@ -26,11 +27,12 @@ where
     M: ControlMessage,
 {
     pub fn new(processor: P) -> Node<P, M> {
-        let (control_message_sender, control_message_receiver) = unbounded::<M>();
-        let join_handle = processor.start(control_message_receiver);
+        let finished = Arc::new(AtomicBool::new(false));
+        let (control_message_sender, join_handle) = processor.start(Arc::clone(&finished));
         Node {
             control_message_sender,
             join_handle,
+            finished,
             phantom: PhantomData,
         }
     }
@@ -44,6 +46,14 @@ where
         self.send_control_message(M::shutdown_msg())?;
         Ok(self.join_handle)
     }
+
+    pub fn join(self) {
+        self.join_handle.join().unwrap();
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Relaxed)
+    }
 }
 
 pub enum ProcessorState {
@@ -55,7 +65,7 @@ pub trait Processor<M>: Sized + Send + 'static
 where
     M: ControlMessage,
 {
-    fn start(self, rx: Receiver<M>) -> JoinHandle<()>;
+    fn start(self, finished: Arc<AtomicBool>) -> (Sender<M>, JoinHandle<()>);
 
     /// Handle control messages, if any are ready.
     ///
@@ -71,6 +81,9 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use crossbeam_channel::{unbounded, TryRecvError};
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn node_start_shutdown_and_join() {
@@ -93,17 +106,25 @@ mod test {
     struct TestProcessor {}
 
     impl Processor<TestControlMessage> for TestProcessor {
-        fn start(mut self, rx: Receiver<TestControlMessage>) -> JoinHandle<()> {
-            thread::spawn(move || loop {
-                let state = self.handle_control_messages(&rx).unwrap_or_else(|e| {
-                    error!("{:?}", e);
-                    ProcessorState::Running
-                });
-                if let ProcessorState::Finished = state {
-                    break;
+        fn start(
+            mut self,
+            finished: Arc<AtomicBool>,
+        ) -> (Sender<TestControlMessage>, JoinHandle<()>) {
+            let (tx, rx) = unbounded();
+            let handle = thread::spawn(move || {
+                loop {
+                    let state = self.handle_control_messages(&rx).unwrap_or_else(|e| {
+                        error!("{:?}", e);
+                        ProcessorState::Running
+                    });
+                    if let ProcessorState::Finished = state {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10))
                 }
-                thread::sleep(Duration::from_millis(10))
-            })
+                finished.store(true, Ordering::Relaxed);
+            });
+            (tx, handle)
         }
 
         fn handle_control_messages(

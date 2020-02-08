@@ -2,16 +2,15 @@ use crate::audio::AudioSpec;
 use crate::crossfade;
 use crate::fft::ReFFT;
 use crate::resampler;
-use crossbeam_channel::{bounded, Receiver};
+use crossbeam_channel::Receiver;
 use slice_deque::SliceDeque;
 use std::path::PathBuf;
-use std::thread;
 use std::time::Duration;
 use stopwatch::Stopwatch;
 
 /// concurrent vocoder for one channel of audio
 pub struct Stretcher {
-    spec: AudioSpec,
+    pub spec: AudioSpec,
     input: Receiver<Vec<f32>>,
     input_buf: SliceDeque<f32>,
     output_buf: SliceDeque<f32>,
@@ -76,19 +75,13 @@ impl Stretcher {
         }
     }
 
-    fn channel_bound(&self) -> usize {
-        ((self.window_len as f32 / self.spec.sample_rate as f32) / self.buffer_dur.as_secs_f32())
-            .ceil() as usize
+    pub fn is_done(&self) -> bool {
+        self.done
     }
 
-    pub fn into_thread(mut self) -> Receiver<Vec<f32>> {
-        let (tx, rx) = bounded(self.channel_bound());
-        thread::spawn(move || {
-            while !self.done {
-                tx.send(self.next_window()).unwrap();
-            }
-        });
-        rx
+    pub fn channel_bound(&self) -> usize {
+        ((self.window_len as f32 / self.spec.sample_rate as f32) / self.buffer_dur.as_secs_f32())
+            .ceil() as usize
     }
 
     pub fn next_window(&mut self) -> Vec<f32> {

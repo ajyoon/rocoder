@@ -34,7 +34,7 @@ pub fn sqrt_interp(start: f32, end: f32, ratio: f32) -> f32 {
     let increasing = start < end;
     // Reshape `ratio` to be within a domain of -1 -> 1
     let progress = ((ratio * 2.0) - 1.0) * if increasing { 1.0 } else { -1.0 };
-    let factor = (0.5 * (1.0 + progress)).sqrt();
+    let factor = (0.5 * (1.0 + progress.max(-1.0))).sqrt();
     let abs_interval = (end - start).abs();
     (if increasing { start } else { end }) + (abs_interval * factor)
 }

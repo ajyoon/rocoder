@@ -5,16 +5,21 @@ use rocoder::recorder;
 use rocoder::runtime_setup;
 use rocoder::stretcher::Stretcher;
 use rocoder::windows;
-use rocoder::signal_flow::node::Processor;
+use rocoder::signal_flow::node::{Node};
 use rocoder::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
+use rocoder::stretcher_processor::{StretcherProcessor, StretcherProcessorControlMessage};
 
 use anyhow::Result;
+use ctrlc;
 use crossbeam_channel::unbounded;
 
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 use structopt::{clap::AppSettings, StructOpt};
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
+use std::thread;
 
 #[macro_use]
 extern crate log;
@@ -98,7 +103,7 @@ fn main() -> Result<()> {
     let spec = audio.spec;
     let window = windows::hanning(opt.window_len);
 
-    let channel_receivers = audio
+    let stretchers = audio
         .data
         .into_iter()
         .map(|channel| {
@@ -116,17 +121,14 @@ fn main() -> Result<()> {
             if stretcher_in_tx.send(channel).is_err() {
                 warn!("failed to send channel data");
             }
-            stretcher.into_thread()
+            stretcher
         })
         .collect();
-
     let expected_total_samples = Some((total_samples_len as f32 * opt.factor) as usize);
-    let bus = AudioBus {
-        spec,
-        expected_total_samples,
-        channels: channel_receivers,
-    };
-    handle_result(&opt, bus)?;
+    let (stretcher_processor, bus) = StretcherProcessor::new(stretchers, expected_total_samples);
+    let stretcher_node = Node::new(stretcher_processor);
+
+    handle_result(&opt, bus, stretcher_node)?;
     Ok(())
 }
 
@@ -163,6 +165,7 @@ fn load_audio(opt: &Opt) -> Audio<f32> {
 fn handle_result(
     opt: &Opt,
     audio_bus: AudioBus,
+    stretcher_node: Node<StretcherProcessor, StretcherProcessorControlMessage>,
 ) -> Result<()> {
     match &opt.output {
         Some(path) => {
@@ -172,17 +175,51 @@ fn handle_result(
             writer.finalize().unwrap();
         }
         None => {
-            let player = AudioOutputProcessor::new(audio_bus.spec, audio_bus.expected_total_samples);
-            let (player_ctrl_tx, player_ctrl_rx) = unbounded();
-            let player_join_handle = player.start(player_ctrl_rx);
-            player_ctrl_tx.send(AudioOutputProcessorControlMessage::ConnectBus {
-                id: 0,
-                bus: audio_bus,
-                fade: Some(opt.fade),
-                shutdown_when_finished: true,
-            }).unwrap();
-            player_join_handle.join().unwrap();
+            play(audio_bus, Some(opt.fade));
         }
     }
+    stretcher_node.join();
     Ok(())
 }
+
+const PLAY_POLL: Duration = Duration::from_millis(500);
+
+fn play(bus: AudioBus, fade: Option<Duration>) {
+    let player_node = Arc::new(Node::new(AudioOutputProcessor::new(bus.spec)));
+    player_node.send_control_message(AudioOutputProcessorControlMessage::ConnectBus {
+        fade,
+        bus,
+        id: 0,
+        shutdown_when_finished: true,
+
+    }).unwrap();
+    let quit_counter = Arc::new(AtomicU16::new(0));
+    let player_node_clone = Arc::clone(&player_node);
+    let quit_counter_clone = Arc::clone(&quit_counter);
+    ctrlc::set_handler(move || {
+        control_c_handler(&quit_counter_clone, Arc::clone(&player_node_clone));
+    }).unwrap();
+    loop {
+        thread::sleep(PLAY_POLL);
+        if player_node.is_finished() {
+            // need to explicitly exit with a non-zero exit code so the control-c quit
+            // makes it to the shell so, for instance, bash loops can be broken.
+            std::process::exit(1);
+        }
+    }
+}
+
+const QUIT_FADE: Option<Duration> = Some(Duration::from_secs(3));
+
+fn control_c_handler(quit_counter: &Arc<AtomicU16>, node: Arc<Node<AudioOutputProcessor, AudioOutputProcessorControlMessage>>)
+{
+    if quit_counter.fetch_add(1, Ordering::Relaxed) > 0 {
+        // If ctrl-c was received more than once, quit without fading out
+        println!("\nExiting immediately");
+        node.send_control_message(AudioOutputProcessorControlMessage::Shutdown { fade: None }).unwrap();
+        return;
+    }
+    println!("\nGot quit signal, fading out audio for {:#?}", QUIT_FADE.unwrap());
+    node.send_control_message(AudioOutputProcessorControlMessage::Shutdown { fade: QUIT_FADE }).unwrap();
+}
+

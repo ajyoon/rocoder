@@ -1,9 +1,8 @@
 use crate::math;
 use anyhow::Result;
-use crossbeam_channel::{bounded, unbounded, Receiver};
+use crossbeam_channel::{unbounded, Receiver};
 use num_traits::Num;
 use std::ops::MulAssign;
-use std::thread;
 use std::time::Duration;
 
 pub trait Sample: Sized + Num + Copy + MulAssign + Send + 'static {
@@ -220,7 +219,7 @@ impl AudioBus {
             .into_iter()
             .map(|channel| {
                 let (tx, rx) = unbounded();
-                tx.send(channel);
+                tx.send(channel).unwrap();
                 rx
             })
             .collect();
@@ -234,40 +233,12 @@ impl AudioBus {
     pub fn collect_chunk(&mut self) -> Result<Audio<f32>> {
         let mut chunk = Vec::with_capacity(self.spec.channels as usize);
         for channel_rx in &self.channels {
-            chunk.push(channel_rx.recv()?)
+            chunk.push(channel_rx.recv()?);
         }
         Ok(Audio {
             spec: self.spec,
             data: chunk,
         })
-    }
-
-    pub fn into_chunk_rx(self) -> Receiver<Audio<f32>> {
-        let (tx, rx) = bounded(4);
-        thread::spawn(move || loop {
-            let mut chunk = Vec::with_capacity(self.spec.channels as usize);
-            for channel_rx in &self.channels {
-                match channel_rx.recv() {
-                    Ok(data) => {
-                        chunk.push(data);
-                    }
-                    Err(_) => {
-                        return;
-                    }
-                }
-            }
-            if tx
-                .send(Audio {
-                    spec: self.spec,
-                    data: chunk,
-                })
-                .is_err()
-            {
-                info!("audio chunk channel hung up.");
-                return;
-            }
-        });
-        rx
     }
 }
 

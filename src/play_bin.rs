@@ -4,10 +4,9 @@ use rocoder::duration_parser;
 use rocoder::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
 use rocoder::recorder;
 use rocoder::runtime_setup;
-use rocoder::signal_flow::node::Processor;
+use rocoder::signal_flow::node::Node;
 
 use anyhow::Result;
-use crossbeam_channel::unbounded;
 
 use std::io;
 use std::path::PathBuf;
@@ -55,18 +54,17 @@ fn main() -> Result<()> {
     let mut audio: Audio<f32> = load_audio(&opt);
     audio.amplify_in_place(opt.amplitude);
     let spec = audio.spec;
-    let total_samples = audio.data[0].len();
-    let player = AudioOutputProcessor::new(spec, Some(total_samples));
-    let (player_ctrl_tx, player_ctrl_rx) = unbounded();
-    let player_join_handle = player.start(player_ctrl_rx);
+    let player_node = Node::new(AudioOutputProcessor::new(spec));
     let bus = AudioBus::from_audio(audio);
-    player_ctrl_tx.send(AudioOutputProcessorControlMessage::ConnectBus {
-        id: 0,
-        bus,
-        fade: None,
-        shutdown_when_finished: true,
-    });
-    player_join_handle.join();
+    player_node
+        .send_control_message(AudioOutputProcessorControlMessage::ConnectBus {
+            id: 0,
+            bus,
+            fade: None,
+            shutdown_when_finished: true,
+        })
+        .unwrap();
+    player_node.join();
     Ok(())
 }
 
