@@ -88,6 +88,7 @@ impl Layer {
                     expected_total_samples as f32 / self.bus.spec.sample_rate as f32,
                 );
                 let percent_played = (played_dur.div_duration_f32(total_dur) * 100.0) as u16;
+                // TODO make this include how long left in minutes & seconds
                 info!(
                     "Played {}s of {}s ~ {}%",
                     played_dur.as_secs(),
