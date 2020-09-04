@@ -103,7 +103,8 @@ impl RecorderProcessor {
                         panic!("failed to fetch get audio stream: {:?}", e);
                     }
                 };
-                let mut channels: Vec<Vec<f32>> = vec![];
+                // optimisation opportunity here by creating inner vecs with capacities
+                let mut channels: Vec<Vec<f32>> = (0..n_channels).map(|_| vec![]).collect();
                 for buffer_interleaved_samples in buffer.chunks(n_channels as usize) {
                     for i in 0..n_channels as usize {
                         unsafe {

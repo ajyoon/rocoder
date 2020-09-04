@@ -24,13 +24,13 @@ pub struct StretcherProcessor {
 
 impl StretcherProcessor {
     pub fn new(
-        stretchers: Vec<Stretcher>,
+        channel_stretchers: Vec<Stretcher>,
         expected_total_samples: Option<usize>,
     ) -> (StretcherProcessor, AudioBus) {
-        let spec = stretchers[0].spec;
+        let spec = channel_stretchers[0].spec;
         let mut channels: Vec<(Sender<Vec<f32>>, Stretcher)> = vec![];
         let mut receivers: Vec<Receiver<Vec<f32>>> = vec![];
-        for stretcher in stretchers.into_iter() {
+        for stretcher in channel_stretchers.into_iter() {
             let (tx, rx) = bounded(stretcher.channel_bound());
             channels.push((tx, stretcher));
             receivers.push(rx);

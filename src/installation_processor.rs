@@ -1,17 +1,21 @@
 use crate::audio::{Audio, AudioBus, AudioSpec};
 use crate::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
 use crate::recorder_processor::{RecorderProcessor, RecorderProcessorControlMessage};
-use crate::signal_flow::node::{ControlMessage, Processor, ProcessorState};
+use crate::signal_flow::node::{ControlMessage, Node, Processor, ProcessorState};
+use crate::stretcher::Stretcher;
 use crate::stretcher_processor::{StretcherProcessor, StretcherProcessorControlMessage};
+use crate::windows;
 
 use anyhow::Result;
 use cpal::{
     self,
     traits::{DeviceTrait, EventLoopTrait, HostTrait},
-    Format, SampleFormat, SampleRate, StreamData, UnknownTypeInputBuffer,
+    SampleFormat, SampleRate, StreamData, UnknownTypeInputBuffer,
 };
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender, TryRecvError};
+use rand::{self, Rng};
 use slice_deque::SliceDeque;
+// use slice_ring_buf::{SliceRB, SliceRbRef};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -71,15 +75,13 @@ impl InstallationProcessor {
 
     fn run(mut self, ctrl_rx: Receiver<InstallationProcessorControlMessage>) -> Result<()> {
         let spec = self.config.spec;
-        let (recorder, recorder_bus) = RecorderProcessor::new(spec);
-        let player = AudioOutputProcessor::new(spec);
-        let stretchers: Vec<StretcherProcessor> = vec![];
+        let (recorder_processor, recorder_bus) = RecorderProcessor::new(spec);
+        let recorder = Node::new(recorder_processor);
+        let player = Node::new(AudioOutputProcessor::new(spec));
 
-        let recorder_finished = Arc::new(AtomicBool::new(false));
-        let (recorder_ctrl, recorder_handle) = recorder.start(recorder_finished);
-        let player_finished = Arc::new(AtomicBool::new(false));
-        let (player_ctrl, player_handle) = player.start(player_finished);
-        const rec_buf_chunks: usize = 32;
+        let mut stretcher_nodes = vec![];
+
+        const rec_buf_chunks: usize = 512;
         let ambient_amp_window_size = (self.config.ambient_volume_window_dur.as_secs_f32()
             * spec.sample_rate as f32) as usize
             * spec.channels as usize;
@@ -88,10 +90,15 @@ impl InstallationProcessor {
             * spec.channels as usize;
         let mut ambient_amplitude: f32 = 0.0;
         let mut current_amplitude: f32 = 0.0;
+        // TODO this slicedeque is actually an auto-resizing
+        // ringbuffer, so it will grow indefinitely when used like
+        // this. need to replace with an actual fixed-size ring buffer
+        // here, and elsewhere
         let mut recording_buffers: Vec<SliceDeque<Vec<f32>>> = (0..recorder_bus.channels.len())
             .map(|_| SliceDeque::with_capacity(rec_buf_chunks))
             .collect();
         let mut listening_state = ListeningState::Idle;
+        let mut recording_buffer_listen_start = 0;
 
         loop {
             // Fetch latest data from recorder
@@ -121,14 +128,54 @@ impl InstallationProcessor {
             // to work well it probably needs to be made exponential
             match listening_state {
                 ListeningState::Idle => {
-                    if current_amplitude > ambient_amplitude * self.config.amp_activation_factor {
+                    if recording_buffers[0].len() > 512
+                        && current_amplitude > ambient_amplitude * self.config.amp_activation_factor
+                    {
+                        info!(
+                            "Heard something, starting to listen. amp={}, ambient amp={}",
+                            current_amplitude, ambient_amplitude
+                        );
                         listening_state = ListeningState::Active;
+                        recording_buffer_listen_start = recording_buffers[0].len();
                     }
                 }
                 ListeningState::Active => {
                     if current_amplitude < ambient_amplitude / self.config.amp_activation_factor {
+                        info!(
+                            "Event ended, playing back. amp={}, ambient amp={}",
+                            current_amplitude, ambient_amplitude
+                        );
                         listening_state = ListeningState::Idle;
-                        // todo Instantiate a new stretcher and send the recording buffer
+                        let stretchers: Vec<Stretcher> = recording_buffers
+                            .iter()
+                            .map(|b| {
+                                let input_chunks = &b[recording_buffer_listen_start..];
+                                let (tx, rx) = unbounded();
+                                input_chunks.iter().for_each(|chunk| {
+                                    tx.send(chunk.clone()).unwrap();
+                                });
+                                return Stretcher::new(
+                                    spec,
+                                    rx,
+                                    10.0,
+                                    1.0,
+                                    1,
+                                    windows::hanning(4096),
+                                    Duration::from_secs(4),
+                                    None,
+                                );
+                            })
+                            .collect();
+                        let (processor, bus) = StretcherProcessor::new(stretchers, None);
+                        stretcher_nodes.push(Node::new(processor));
+                        player.send_control_message(
+                            AudioOutputProcessorControlMessage::ConnectBus {
+                                id: rand::thread_rng().gen(),
+                                bus: bus,
+                                fade: Some(Duration::from_millis(500)),
+                                shutdown_when_finished: false,
+                            },
+                        );
                     }
                 }
             }

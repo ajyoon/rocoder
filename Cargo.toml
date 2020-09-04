@@ -16,6 +16,10 @@ path = "src/main.rs"
 name = "play"
 path = "src/play_bin.rs"
 
+[[bin]]
+name = "installation"
+path = "src/installation.rs"
+
 [profile.release]
 debug = true  # keep debug symbols in release build for profiling
 
@@ -29,7 +33,7 @@ log = "*"
 simplelog = "*"
 structopt = "*"
 minimp3 = "*"
-cpal = "*"
+cpal = "0.11"
 libc = "*"
 pbr = "*"
 ctrlc = "*"
@@ -39,6 +43,7 @@ tempfile = "*"
 crossbeam-channel = "*"
 fwatch = "0.1.5"
 slice-deque = "*"
+slice_ring_buf = "0.2"
 
 [dev-dependencies]
 test-case = "0.3.3"
