@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::audio::{Audio, AudioSpec, Sample};
+use crate::power;
 
 /// Simple audio recording
 
@@ -105,12 +106,31 @@ where
     });
 }
 
+fn chunked_audio_power(audio: &Audio<f32>, bin_dur: Duration) -> Vec<(usize, f32)> {
+    let bin_length = audio.duration_to_sample(bin_dur);
+    let sample_dur = audio.data[0].len();
+    let mut bins: Vec<(usize, f32)> =
+        Vec::with_capacity((sample_dur as f32 / bin_length as f32).ceil() as usize);
+    for bin_start_sample in (0..sample_dur).step_by(bin_length) {
+        let bin_amplitude = &audio
+            .data
+            .iter()
+            .map(|channel| {
+                power::audio_power(
+                    &channel[bin_start_sample..(bin_start_sample + bin_length).min(sample_dur)],
+                )
+            })
+            .max_by(|x, y| x.partial_cmp(&y).unwrap())
+            .unwrap();
+        bins.push((bin_start_sample, *bin_amplitude));
+    }
+    bins
+}
+
 /// Analyze audio to determine when the recording subject begins and ends,
 /// and crop to fit it
-///
-/// This is done with relatively naive amplitude analysis
 fn autocrop_audio(audio: &mut Audio<f32>, analysis_window: Duration, threshold_percentile: usize) {
-    let amplitudes = analyze_amplitude(&audio, analysis_window);
+    let amplitudes = chunked_audio_power(&audio, analysis_window);
     let autocrop_points = determine_autocrop_points(&amplitudes, threshold_percentile);
     if autocrop_points.is_none() {
         return;
@@ -124,29 +144,6 @@ fn autocrop_audio(audio: &mut Audio<f32>, analysis_window: Duration, threshold_p
         audio.sample_to_duration(audio.data[0].len() - end)
     );
     audio.clip_in_place(Some(start_time), Some(clip_dur));
-}
-
-fn analyze_amplitude(audio: &Audio<f32>, bin_dur: Duration) -> Vec<(usize, f32)> {
-    let bin_length = audio.duration_to_sample(bin_dur);
-    let sample_dur = audio.data[0].len();
-    let mut bins: Vec<(usize, f32)> =
-        Vec::with_capacity((sample_dur as f32 / bin_length as f32).ceil() as usize);
-    for bin_start_sample in (0..sample_dur).step_by(bin_length) {
-        let bin_amplitude = &audio
-            .data
-            .iter()
-            .map(|channel| {
-                channel[bin_start_sample..(bin_start_sample + bin_length).min(sample_dur)]
-                    .iter()
-                    .map(|x| x.abs())
-                    .max_by(|x, y| x.partial_cmp(&y).unwrap())
-                    .unwrap()
-            })
-            .max_by(|x, y| x.partial_cmp(&y).unwrap())
-            .unwrap();
-        bins.push((bin_start_sample, *bin_amplitude));
-    }
-    bins
 }
 
 fn determine_noise_threshold(amplitudes: &Vec<(usize, f32)>, threshold_percentile: usize) -> f32 {
@@ -183,7 +180,7 @@ mod test {
     use crate::test_utils::*;
 
     #[test]
-    fn test_analyze_amplitude() {
+    fn test_chunked_audio_power() {
         let mut audio = generate_audio(0.0, 5, 2, 2);
         audio.data[0] = vec![
             -0.3, 0.2, // bin 0: amp = 0.3
@@ -192,10 +189,15 @@ mod test {
         ];
         audio.data[1][4] = 0.7;
 
-        let amplitudes = analyze_amplitude(&audio, Duration::from_secs(1));
+        let amplitudes = chunked_audio_power(&audio, Duration::from_secs(1));
 
         assert_eq!(amplitudes.len(), 3);
-        assert_eq!(amplitudes, vec![(0, 0.3), (2, 0.9), (4, 0.7)]);
+        assert_eq!(amplitudes[0].0, 0);
+        assert_almost_eq(amplitudes[0].1, -10.457574);
+        assert_eq!(amplitudes[1].0, 2);
+        assert_almost_eq(amplitudes[1].1, -0.9151501);
+        assert_eq!(amplitudes[2].0, 4);
+        assert_almost_eq(amplitudes[2].1, -3.0980396);
     }
 
     #[test]

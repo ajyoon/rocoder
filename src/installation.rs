@@ -13,8 +13,8 @@ fn main() -> Result<()> {
     runtime_setup::setup_logging();
 
     let processor = InstallationProcessor::new(InstallationProcessorConfig {
-        max_stretchers: 12,
-        window_sizes: vec![512, 2048, 4096, 8192],
+        max_stretchers: 30,
+        window_sizes: vec![2048, 4096, 8192, 16384],
         min_stretch_factor: 2.0,
         max_stretch_factor: 20.0,
         ..Default::default()

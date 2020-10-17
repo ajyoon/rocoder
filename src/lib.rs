@@ -7,6 +7,7 @@ extern crate log;
 
 mod crossfade;
 mod mixer;
+mod power;
 mod resampler;
 mod slices;
 mod test_utils;

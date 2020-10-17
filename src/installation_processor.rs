@@ -1,5 +1,6 @@
 use crate::audio::{Audio, AudioBus, AudioSpec};
 use crate::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
+use crate::power;
 use crate::recorder_processor::{RecorderProcessor, RecorderProcessorControlMessage};
 use crate::signal_flow::node::{ControlMessage, Node, Processor, ProcessorState};
 use crate::stretcher::Stretcher;
@@ -38,7 +39,7 @@ pub struct InstallationProcessorConfig {
     pub max_snippet_dur: Duration,
     pub ambient_volume_window_dur: Duration,
     pub current_volume_window_dur: Duration,
-    pub amp_activation_factor: f32,
+    pub amp_activation_db_step: f32,
     pub window_sizes: Vec<usize>,
     pub min_stretch_factor: f32,
     pub max_stretch_factor: f32,
@@ -55,7 +56,7 @@ impl Default for InstallationProcessorConfig {
             max_snippet_dur: Duration::from_secs(1),
             ambient_volume_window_dur: Duration::from_secs(10),
             current_volume_window_dur: Duration::from_millis(300),
-            amp_activation_factor: 1.5,
+            amp_activation_db_step: 2.0,
             window_sizes: vec![8192],
             min_stretch_factor: 6.0,
             max_stretch_factor: 12.0,
@@ -88,13 +89,11 @@ impl InstallationProcessor {
 
         const rec_buf_chunks: usize = 1024;
         let ambient_amp_window_size = (self.config.ambient_volume_window_dur.as_secs_f32()
-            * spec.sample_rate as f32) as usize
-            * spec.channels as usize;
+            * spec.sample_rate as f32) as usize;
         let current_amp_window_size = (self.config.current_volume_window_dur.as_secs_f32()
-            * spec.sample_rate as f32) as usize
-            * spec.channels as usize;
-        let mut ambient_amplitude: f32 = 0.0;
-        let mut current_amplitude: f32 = 0.0;
+            * spec.sample_rate as f32) as usize;
+        let mut ambient_amplitude: f32 = -50.0;
+        let mut current_amplitude: f32 = -50.0;
         let mut recording_buffers: Vec<SliceDeque<Vec<f32>>> = (0..recorder_bus.channels.len())
             .map(|_| SliceDeque::with_capacity(rec_buf_chunks))
             .collect();
@@ -134,12 +133,11 @@ impl InstallationProcessor {
                 &recording_buffers,
             );
 
-            // todo this thresholding currently takes a flawed naive linear approach,
-            // to work well it probably needs to be made exponential
             match listening_state {
                 ListeningState::Idle => {
                     if recording_buffers[0].len() > rec_buf_chunks / 2
-                        && current_amplitude > ambient_amplitude * self.config.amp_activation_factor
+                        && current_amplitude
+                            > ambient_amplitude + self.config.amp_activation_db_step
                     {
                         info!(
                             "Heard something, starting to listen. amp={}, ambient amp={}",
@@ -153,7 +151,8 @@ impl InstallationProcessor {
                     // Our "listening" audio has completely filled the recording buffer
                     // or the audio level has dropped below our threshold
                     if recording_buffer_listen_start == 0
-                        || current_amplitude < ambient_amplitude / self.config.amp_activation_factor
+                        || current_amplitude
+                            < ambient_amplitude - self.config.amp_activation_db_step
                     {
                         info!(
                             "Event ended, playing back. amp={}, ambient amp={}",
@@ -178,7 +177,7 @@ impl InstallationProcessor {
                                     spec,
                                     rx,
                                     stretch_factor,
-                                    1.0,
+                                    1.5,
                                     1,
                                     window.clone(),
                                     Duration::from_secs(4),
@@ -231,19 +230,14 @@ impl InstallationProcessor {
         window_size: usize,
         recording_buffers: &Vec<SliceDeque<Vec<f32>>>,
     ) -> f32 {
-        let last_chunk_len = recording_buffers[0].back().unwrap().len() * recording_buffers.len();
+        let last_chunk_len = recording_buffers[0].back().unwrap().len();
         (last_avg * ((window_size - last_chunk_len) as f32 / window_size as f32))
-            + (recording_buffers
+            + ((recording_buffers
                 .iter()
-                .map(|chunks| {
-                    chunks
-                        .back()
-                        .unwrap()
-                        .iter()
-                        .map(|sample| sample.abs())
-                        .sum::<f32>()
-                })
-                .sum::<f32>() as f32
+                .map(|chunks| power::audio_power(chunks.back().unwrap()))
+                .max_by(|x, y| x.partial_cmp(y).unwrap())
+                .unwrap()
+                * last_chunk_len as f32)
                 / window_size as f32)
     }
 }
