@@ -20,7 +20,7 @@ use slice_deque::SliceDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub enum InstallationProcessorControlMessage {
@@ -43,6 +43,8 @@ pub struct InstallationProcessorConfig {
     pub window_sizes: Vec<usize>,
     pub min_stretch_factor: f32,
     pub max_stretch_factor: f32,
+    pub min_pause_between_events: Duration,
+    pub max_pause_between_events: Duration,
 }
 
 impl Default for InstallationProcessorConfig {
@@ -60,6 +62,8 @@ impl Default for InstallationProcessorConfig {
             window_sizes: vec![8192],
             min_stretch_factor: 6.0,
             max_stretch_factor: 12.0,
+            min_pause_between_events: Duration::from_secs(0),
+            max_pause_between_events: Duration::from_secs(15),
         }
     }
 }
@@ -99,6 +103,7 @@ impl InstallationProcessor {
             .collect();
         let mut listening_state = ListeningState::Idle;
         let mut recording_buffer_listen_start: isize = 0;
+        let mut dont_record_until: Instant = Instant::now();
 
         loop {
             // Fetch latest data from recorder
@@ -135,7 +140,8 @@ impl InstallationProcessor {
 
             match listening_state {
                 ListeningState::Idle => {
-                    if recording_buffers[0].len() > rec_buf_chunks / 2
+                    if Instant::now() > dont_record_until
+                        && recording_buffers[0].len() > rec_buf_chunks / 2
                         && current_amplitude
                             > ambient_amplitude + self.config.amp_activation_db_step
                     {
@@ -159,6 +165,11 @@ impl InstallationProcessor {
                             current_amplitude, ambient_amplitude
                         );
                         listening_state = ListeningState::Idle;
+
+                        let pause = self.choose_pause_between_events();
+                        info!("waiting at least {:?} until next event", pause);
+                        dont_record_until = Instant::now() + pause;
+
                         let mut total_input_samples = 0;
                         let stretch_factor = self.choose_stretch_factor();
                         let window = self.choose_window();
@@ -223,6 +234,13 @@ impl InstallationProcessor {
             self.config.min_stretch_factor,
             self.config.max_stretch_factor,
         );
+    }
+
+    fn choose_pause_between_events(&self) -> Duration {
+        return Duration::from_secs_f32(rand::thread_rng().gen_range(
+            self.config.min_pause_between_events.as_secs_f32(),
+            self.config.max_pause_between_events.as_secs_f32(),
+        ));
     }
 
     fn chunked_moving_average_amp(
