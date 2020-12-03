@@ -42,14 +42,14 @@ struct Opt {
     #[structopt(long = "min-stretch-factor", default_value = "6")]
     min_stretch_factor: f32,
 
-    #[structopt(long = "max-stretch-factor", default_value = "6")]
+    #[structopt(long = "max-stretch-factor", default_value = "12")]
     max_stretch_factor: f32,
 
     #[structopt(long = "min-pause-between-events", default_value = "0",
                 parse(try_from_str = duration_parser::parse_duration))]
     min_pause_between_events: Duration,
 
-    #[structopt(long = "min-pause-between-events", default_value = "0",
+    #[structopt(long = "max-pause-between-events", default_value = "15",
                 parse(try_from_str = duration_parser::parse_duration))]
     max_pause_between_events: Duration,
 }
