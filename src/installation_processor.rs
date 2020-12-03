@@ -78,6 +78,8 @@ enum ListeningState {
     Active,
 }
 
+const REC_BUF_CHUNKS: usize = 1024;
+
 impl InstallationProcessor {
     pub fn new(config: InstallationProcessorConfig) -> Self {
         InstallationProcessor { config }
@@ -91,7 +93,6 @@ impl InstallationProcessor {
 
         let mut stretcher_nodes = vec![];
 
-        const rec_buf_chunks: usize = 1024;
         let ambient_amp_window_size = (self.config.ambient_volume_window_dur.as_secs_f32()
             * spec.sample_rate as f32) as usize;
         let current_amp_window_size = (self.config.current_volume_window_dur.as_secs_f32()
@@ -99,7 +100,7 @@ impl InstallationProcessor {
         let mut ambient_amplitude: f32 = -50.0;
         let mut current_amplitude: f32 = -50.0;
         let mut recording_buffers: Vec<SliceDeque<Vec<f32>>> = (0..recorder_bus.channels.len())
-            .map(|_| SliceDeque::with_capacity(rec_buf_chunks))
+            .map(|_| SliceDeque::with_capacity(REC_BUF_CHUNKS))
             .collect();
         let mut listening_state = ListeningState::Idle;
         let mut recording_buffer_listen_start: isize = 0;
@@ -112,9 +113,9 @@ impl InstallationProcessor {
                 |(i, channel_recv)| match channel_recv.recv() {
                     Ok(chunk) => {
                         let recording_buffer = unsafe { recording_buffers.get_unchecked_mut(i) };
-                        if recording_buffer.len() == rec_buf_chunks {
+                        if recording_buffer.len() == REC_BUF_CHUNKS {
                             truncated_rec_bufs = true;
-                            recording_buffer.truncate_front(rec_buf_chunks - 1);
+                            recording_buffer.truncate_front(REC_BUF_CHUNKS - 1);
                         }
                         recording_buffer.push_back(chunk);
                     }
@@ -141,7 +142,7 @@ impl InstallationProcessor {
             match listening_state {
                 ListeningState::Idle => {
                     if Instant::now() > dont_record_until
-                        && recording_buffers[0].len() > rec_buf_chunks / 2
+                        && recording_buffers[0].len() > REC_BUF_CHUNKS / 2
                         && current_amplitude
                             > ambient_amplitude + self.config.amp_activation_db_step
                     {
