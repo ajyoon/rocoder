@@ -1,0 +1,26 @@
+[Unit]
+Description=mirrors
+After=multi-user.target
+
+[Service]
+#User=pi
+#Group=pi
+Type=idle
+WorkingDirectory=/home/pi/rocoder
+ExecStart=cargo run --release --bin installation -- \
+                --channels 1 \
+                --max-stretchers 4 \
+                --max-snippet-dur 2 \
+                --ambient-volume-window-dur 10 \
+                --current-volume-window-dur 0.3 \
+                --amp-activation-db-step 2.0 \
+                --window-size 8192 \
+                --min-stretch-factor 6 \
+                --max-stretch-factor 12 \
+                --min-pause-between-events 0 \
+                --max-pause-between-events 15
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
