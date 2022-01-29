@@ -1,11 +1,11 @@
-use crate::audio::{Audio, AudioBus, AudioSpec};
-use crate::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
-use crate::power;
-use crate::recorder_processor::{RecorderProcessor, RecorderProcessorControlMessage};
-use crate::signal_flow::node::{ControlMessage, Node, Processor, ProcessorState};
-use crate::stretcher::Stretcher;
-use crate::stretcher_processor::{StretcherProcessor, StretcherProcessorControlMessage};
-use crate::windows;
+use rocoder::audio::{Audio, AudioBus, AudioSpec};
+use rocoder::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
+use rocoder::power;
+use rocoder::recorder_processor::{RecorderProcessor, RecorderProcessorControlMessage};
+use rocoder::signal_flow::node::{ControlMessage, Node, Processor, ProcessorState};
+use rocoder::stretcher::Stretcher;
+use rocoder::stretcher_processor::{StretcherProcessor, StretcherProcessorControlMessage};
+use rocoder::windows;
 
 use anyhow::Result;
 use cpal::{
