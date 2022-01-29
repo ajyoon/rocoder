@@ -264,6 +264,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a164bb2ceaeff4f42542bdb847c41517c78a60f5649671b2a07312b6e117549"
 
 [[package]]
+name = "installation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "crossbeam-channel",
+ "rand 0.7.3",
+ "rocoder",
+ "slice-deque",
+ "structopt",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -689,7 +702,6 @@ dependencies = [
  "stopwatch",
  "structopt",
  "tempfile",
- "test-case",
 ]
 
 [[package]]
@@ -835,19 +847,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dfed899f0eb03f32ee8c6a0aabdb8a7949659e3466561fc0adf54e26d88c5f4"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "test-case"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7cad0a06f9a61e94355aa3b3dc92d85ab9c83406722b1ca5e918d4297c12c23"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn",
- "version_check",
 ]
 
 [[package]]

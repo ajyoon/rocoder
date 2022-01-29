@@ -3,8 +3,7 @@ use crossbeam_channel::Receiver;
 use libloading::{Library, Symbol};
 use rand::Rng;
 use rustfft::num_complex::Complex32;
-use rustfft::num_traits::Zero;
-use rustfft::{FFTplanner, FFT};
+use rustfft::{Fft, FftPlanner};
 use std::f32;
 use std::panic;
 use std::path::PathBuf;
@@ -14,8 +13,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const TWO_PI: f32 = f32::consts::PI;
 
 pub struct ReFFT {
-    forward_fft: Arc<dyn FFT<f32>>,
-    inverse_fft: Arc<dyn FFT<f32>>,
+    forward_fft: Arc<dyn Fft<f32>>,
+    inverse_fft: Arc<dyn Fft<f32>>,
     window_len: usize,
     window: Vec<f32>,
     kernel_recv: Option<Receiver<Library>>,
@@ -25,10 +24,9 @@ pub struct ReFFT {
 impl ReFFT {
     pub fn new(window: Vec<f32>, kernel_src: Option<PathBuf>) -> ReFFT {
         let window_len = window.len();
-        let mut forward_planner = FFTplanner::new(false);
-        let forward_fft = forward_planner.plan_fft(window_len);
-        let mut inverse_planner: FFTplanner<f32> = FFTplanner::new(true);
-        let inverse_fft = inverse_planner.plan_fft(window_len);
+        let mut planner = FftPlanner::new();
+        let forward_fft = planner.plan_fft_forward(window_len);
+        let inverse_fft = planner.plan_fft_inverse(window_len);
         let kernel_recv = kernel_src.map(|src| hotswapper::hotswap(src).unwrap());
         ReFFT {
             forward_fft,
@@ -49,33 +47,26 @@ impl ReFFT {
     }
 
     fn forward_fft(&self, samples: &[f32]) -> Vec<Complex32> {
-        let mut input: Vec<Complex32> = samples
+        let mut buf: Vec<Complex32> = samples
             .iter()
             .zip(&self.window)
             .map(|(s, w)| Complex32::new(s * w, 0.0))
             .collect();
-        if input.len() < self.window_len {
-            input.extend(vec![
-                Complex32::new(0.0, 0.0);
-                self.window_len - input.len()
-            ]);
+        if buf.len() < self.window_len {
+            buf.extend(vec![Complex32::new(0.0, 0.0); self.window_len - buf.len()]);
         }
-        let mut output: Vec<Complex32> = vec![Complex32::zero(); self.window_len];
-        self.forward_fft.process(input.as_mut_slice(), &mut output);
-        output
+        self.forward_fft.process(&mut buf);
+        buf
     }
 
     fn resynth_from_fft_result(&self, fft_result: Vec<Complex32>) -> Vec<f32> {
         let mut rng = rand::thread_rng();
-        let mut input: Vec<Complex32> = fft_result
+        let mut buf: Vec<Complex32> = fft_result
             .iter()
             .map(|c| Complex32::new(0.0, rng.gen_range(0.0, TWO_PI)).exp() * c.norm())
             .collect();
-        // reuse fft_result for output to skip another allocation
-        let mut output = fft_result;
-        self.inverse_fft.process(&mut input, &mut output);
-        output
-            .iter()
+        self.inverse_fft.process(&mut buf);
+        buf.iter()
             .zip(&self.window)
             .map(|(c, w)| (c.re / self.window_len as f32) * w)
             .collect()

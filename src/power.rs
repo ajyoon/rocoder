@@ -1,6 +1,3 @@
-use crate::audio::{Audio, AudioSpec, Sample};
-use std::time::Duration;
-
 const MIN_DECIBELS: f32 = -99999999.0;
 
 /// Convert a linear amplitude (0-1) to a decibel measurement relative to max amplitude

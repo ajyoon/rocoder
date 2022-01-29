@@ -1,4 +1,4 @@
-use crate::audio::{Audio, AudioBus, AudioSpec};
+use crate::audio::{AudioBus, AudioSpec};
 use crate::signal_flow::node::{ControlMessage, Processor, ProcessorState};
 
 use anyhow::Result;

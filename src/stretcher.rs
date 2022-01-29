@@ -6,7 +6,7 @@ use crossbeam_channel::Receiver;
 use slice_deque::SliceDeque;
 use std::path::PathBuf;
 use std::time::Duration;
-use stopwatch::Stopwatch;
+// use stopwatch::Stopwatch;
 
 /// concurrent vocoder for one channel of audio
 pub struct Stretcher {
@@ -86,7 +86,7 @@ impl Stretcher {
 
     pub fn next_window(&mut self) -> Vec<f32> {
         debug_assert!(self.output_buf.len() == self.half_window_len);
-        let sw = Stopwatch::start_new();
+        // let sw = Stopwatch::start_new();
         let mut iter_output_buf_pos = 0;
         while self.output_buf.len() < self.samples_needed_per_window + self.half_window_len {
             // Generate output one half-window at a time, with each step leaving a half window

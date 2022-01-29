@@ -1,0 +1,4 @@
+# every minute run the hours script, which does some more involved
+# logic around making sure it's running at the right times of day
+
+* * * * * python3 /home/pi/rocoder/installation_scripts/hours_manager.py

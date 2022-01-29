@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+
+**/*.wav
+**/*.mp3
+
+samples
+perf.data*

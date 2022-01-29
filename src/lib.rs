@@ -17,7 +17,6 @@ pub mod audio_files;
 pub mod duration_parser;
 pub mod fft;
 pub mod hotswapper;
-pub mod installation_processor;
 pub mod math;
 pub mod player_processor;
 pub mod recorder;

@@ -16,10 +16,6 @@ path = "src/main.rs"
 name = "play"
 path = "src/play_bin.rs"
 
-[[bin]]
-name = "installation"
-path = "src/installation.rs"
-
 [profile.release]
 debug = true  # keep debug symbols in release build for profiling
 
@@ -46,4 +42,4 @@ slice-deque = "*"
 slice_ring_buf = "0.2"
 
 [dev-dependencies]
-test-case = "0.3.3"
+test-case = "1.2.1"

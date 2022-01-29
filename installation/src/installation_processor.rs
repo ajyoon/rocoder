@@ -78,7 +78,7 @@ enum ListeningState {
     Active,
 }
 
-const REC_BUF_CHUNKS: usize = 1024;
+const REC_BUF_CHUNKS: usize = 256;
 
 impl InstallationProcessor {
     pub fn new(config: InstallationProcessorConfig) -> Self {

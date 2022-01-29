@@ -11,6 +11,7 @@ pub fn setup_logging() {
         LevelFilter::Debug,
         config,
         TerminalMode::Stdout,
+        ColorChoice::Auto,
     )])
     .unwrap();
 }
