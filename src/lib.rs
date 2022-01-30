@@ -9,6 +9,7 @@ mod test_utils;
 
 pub mod audio;
 pub mod audio_files;
+pub mod cpal_utils;
 pub mod crossfade;
 pub mod duration_parser;
 pub mod fft;

@@ -8,11 +8,6 @@ use rocoder::stretcher_processor::{StretcherProcessor, StretcherProcessorControl
 use rocoder::windows;
 
 use anyhow::Result;
-use cpal::{
-    self,
-    traits::{DeviceTrait, EventLoopTrait, HostTrait},
-    SampleFormat, SampleRate, StreamData, UnknownTypeInputBuffer,
-};
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender, TryRecvError};
 use rand::{self, Rng};
 use slice_deque::SliceDeque;

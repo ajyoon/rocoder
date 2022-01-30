@@ -1,11 +1,11 @@
 use crate::audio::{AudioBus, AudioSpec};
+use crate::cpal_utils;
 use crate::mixer::Mixer;
 use crate::signal_flow::node::{ControlMessage, Processor, ProcessorState};
 use anyhow::Result;
 use cpal::{
     self,
-    traits::{DeviceTrait, EventLoopTrait, HostTrait},
-    Format, SampleFormat, SampleRate, StreamData, UnknownTypeOutputBuffer,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -51,44 +51,34 @@ impl AudioOutputProcessor {
         }
     }
 
-    fn launch_cpal_thread<E>(event_loop: Arc<E>, mixer_arc: Arc<Mutex<Mixer>>)
-    where
-        E: EventLoopTrait + Send + Sync + 'static,
-    {
-        thread::spawn(move || {
-            event_loop.run(move |_stream_id, stream_data| {
-                let mut buffer = match stream_data {
-                    Ok(res) => match res {
-                        StreamData::Output {
-                            buffer: UnknownTypeOutputBuffer::F32(buffer),
-                        } => buffer,
-                        _ => panic!("unexpected buffer type"),
-                    },
-                    Err(e) => {
-                        panic!("failed to fetch get audio stream: {:?}", e);
-                    }
-                };
-                let mut mixer = mixer_arc.lock().unwrap();
-                mixer.fill_buffer(&mut buffer);
-            });
-        });
-    }
-
     fn run(mut self, ctrl_rx: Receiver<AudioOutputProcessorControlMessage>) -> Result<()> {
-        let mixer_arc_for_run = Arc::clone(&self.mixer);
-        let format = Format {
-            channels: self.spec.channels,
-            sample_rate: SampleRate(self.spec.sample_rate),
-            data_type: SampleFormat::F32,
-        };
+        let mixer_arc = Arc::clone(&self.mixer);
         let host = cpal::default_host();
-        let event_loop = Arc::new(host.event_loop());
-        let event_loop_arc_for_run = Arc::clone(&event_loop);
         let output_device = host.default_output_device().unwrap();
         info!("Using default output device: \"{}\"", output_device.name()?);
-        let output_stream_id = event_loop.build_output_stream(&output_device, &format)?;
-        event_loop.play_stream(output_stream_id.clone())?;
-        Self::launch_cpal_thread(event_loop_arc_for_run, mixer_arc_for_run);
+        let supported_configs = output_device
+            .supported_output_configs()
+            .expect("failed to query output device configs");
+        let stream_config = cpal_utils::find_output_stream_config(
+            supported_configs,
+            self.spec.channels,
+            self.spec.sample_rate,
+        )?;
+        let output_stream = output_device
+            .build_output_stream(
+                &stream_config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    // react to stream events and read or write stream data here.
+                    let mut mixer = mixer_arc.lock().unwrap();
+                    mixer.fill_buffer(data);
+                },
+                move |err| {
+                    panic!("audio output stream failed: {:?}", err);
+                },
+            )
+            .expect("failed to build output stream");
+        output_stream.play().expect("failed to start output stream");
+
         loop {
             match self.handle_control_messages(&ctrl_rx)? {
                 ProcessorState::Finished => {
@@ -112,7 +102,6 @@ impl AudioOutputProcessor {
             }
             thread::sleep(PLAYBACK_SLEEP);
         }
-        event_loop.destroy_stream(output_stream_id);
         Ok(())
     }
 

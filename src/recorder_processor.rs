@@ -1,11 +1,11 @@
 use crate::audio::{AudioBus, AudioSpec};
+use crate::cpal_utils;
 use crate::signal_flow::node::{ControlMessage, Processor, ProcessorState};
 
 use anyhow::Result;
 use cpal::{
     self,
-    traits::{DeviceTrait, EventLoopTrait, HostTrait},
-    Format, SampleFormat, SampleRate, StreamData, UnknownTypeInputBuffer,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 
@@ -48,7 +48,6 @@ impl RecorderProcessor {
 
     fn run(mut self, ctrl_rx: Receiver<RecorderProcessorControlMessage>) -> Result<()> {
         let host = cpal::default_host();
-        let event_loop = Arc::new(host.event_loop());
         let input_device = host
             .default_input_device()
             .expect("failed to get default input device");
@@ -57,17 +56,30 @@ impl RecorderProcessor {
             input_device.name().unwrap()
         );
 
-        let format = Format {
-            channels: self.spec.channels,
-            sample_rate: SampleRate(self.spec.sample_rate),
-            data_type: SampleFormat::F32,
-        };
-        let input_stream_id = event_loop
-            .build_input_stream(&input_device, &format)
-            .unwrap();
-        event_loop.play_stream(input_stream_id.clone()).unwrap();
-        let event_loop_arc_for_run = Arc::clone(&event_loop);
-        self.launch_cpal_thread(event_loop_arc_for_run);
+        let supported_configs = input_device
+            .supported_input_configs()
+            .expect("failed to query input device configs");
+        let stream_config = cpal_utils::find_input_stream_config(
+            supported_configs,
+            self.spec.channels,
+            self.spec.sample_rate,
+        )?;
+
+        let channel_senders = self.channel_senders.clone();
+
+        let input_stream = input_device
+            .build_input_stream(
+                &stream_config,
+                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                    // react to stream events and read or write stream data here.
+                    send_samples_from_raw_input(data, self.spec.channels, &channel_senders)
+                },
+                move |err| {
+                    panic!("audio input stream failed: {:?}", err);
+                },
+            )
+            .expect("failed to build input stream");
+        input_stream.play().expect("failed to start input stream");
         loop {
             if self.finished.load(Ordering::Relaxed) {
                 break;
@@ -80,47 +92,30 @@ impl RecorderProcessor {
             }
             thread::sleep(RECORDER_POLL);
         }
-        event_loop.destroy_stream(input_stream_id);
         Ok(())
     }
+}
 
-    fn launch_cpal_thread<E>(&self, event_loop: Arc<E>)
-    where
-        E: EventLoopTrait + Send + Sync + 'static,
-    {
-        let n_channels = self.spec.channels;
-        let senders = self.channel_senders.clone();
-        thread::spawn(move || {
-            event_loop.run(move |_stream_id, stream_data| {
-                let buffer = match stream_data {
-                    Ok(res) => match res {
-                        StreamData::Input {
-                            buffer: UnknownTypeInputBuffer::F32(buffer),
-                        } => buffer,
-                        _ => panic!("unexpected buffer type"),
-                    },
-                    Err(e) => {
-                        panic!("failed to fetch get audio stream: {:?}", e);
-                    }
-                };
-                // optimisation opportunity here by creating inner vecs with capacities
-                let mut channels: Vec<Vec<f32>> = (0..n_channels).map(|_| vec![]).collect();
-                for buffer_interleaved_samples in buffer.chunks(n_channels as usize) {
-                    for i in 0..n_channels as usize {
-                        unsafe {
-                            channels
-                                .get_unchecked_mut(i)
-                                .push(*buffer_interleaved_samples.get_unchecked(i));
-                        }
-                    }
-                }
-                for (i, channel) in channels.into_iter().enumerate() {
-                    unsafe {
-                        senders.get_unchecked(i).send(channel).unwrap();
-                    }
-                }
-            });
-        });
+fn send_samples_from_raw_input(
+    buf: &[f32],
+    n_channels: u16,
+    channel_senders: &Vec<Sender<Vec<f32>>>,
+) {
+    // optimisation opportunity here by creating inner vecs with capacities
+    let mut channels: Vec<Vec<f32>> = (0..n_channels).map(|_| vec![]).collect();
+    for buffer_interleaved_samples in buf.chunks(n_channels as usize) {
+        for i in 0..n_channels as usize {
+            unsafe {
+                channels
+                    .get_unchecked_mut(i)
+                    .push(*buffer_interleaved_samples.get_unchecked(i));
+            }
+        }
+    }
+    for (i, channel) in channels.into_iter().enumerate() {
+        unsafe {
+            channel_senders.get_unchecked(i).send(channel).unwrap();
+        }
     }
 }
 

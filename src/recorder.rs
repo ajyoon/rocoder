@@ -1,15 +1,13 @@
 use cpal::{
     self,
-    traits::{DeviceTrait, EventLoopTrait, HostTrait},
-    Format, SampleFormat, SampleRate, StreamData, UnknownTypeInputBuffer,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use std::io;
 use std::sync::mpsc;
-use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
 use crate::audio::{Audio, AudioSpec, Sample};
+use crate::cpal_utils;
 use crate::power;
 
 /// Simple audio recording
@@ -20,32 +18,48 @@ const NOISE_THRESHOLD_PERCENTILE: usize = 30;
 pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
     // wait_for_enter_keypress("Press ENTER to start recording");
     let host = cpal::default_host();
-    let event_loop = Arc::new(host.event_loop());
-    let event_loop_arc_for_run = Arc::clone(&event_loop);
     let (raw_samples_sender, raw_samples_receiver) = mpsc::channel::<f32>();
 
     let input_device = host
         .default_input_device()
         .expect("failed to get default input device");
-    println!(
+    info!(
         "Using default input device: \"{}\"",
         input_device.name().unwrap()
     );
 
-    let format = Format {
-        channels: audio_spec.channels,
-        sample_rate: SampleRate(audio_spec.sample_rate),
-        data_type: SampleFormat::F32,
-    };
-    let input_stream_id = event_loop
-        .build_input_stream(&input_device, &format)
-        .unwrap();
+    let supported_configs = input_device
+        .supported_input_configs()
+        .expect("failed to query input device configs");
+    let stream_config = cpal_utils::find_input_stream_config(
+        supported_configs,
+        audio_spec.channels,
+        audio_spec.sample_rate,
+    )
+    .unwrap();
 
-    event_loop.play_stream(input_stream_id.clone()).unwrap();
-    launch_cpal_thread(event_loop_arc_for_run, raw_samples_sender);
+    let input_stream = input_device
+        .build_input_stream(
+            &stream_config,
+            move |data: &[f32], &_: &cpal::InputCallbackInfo| {
+                // react to stream events and read or write stream data here.
+                for sample in data.iter() {
+                    match raw_samples_sender.send(*sample) {
+                        Err(e) => {
+                            error!("failed to send recorded sample: {}", e);
+                        }
+                        _ => (),
+                    }
+                }
+            },
+            move |err| {
+                panic!("audio input stream failed: {:?}", err);
+            },
+        )
+        .expect("failed to build input stream");
+    input_stream.play().expect("failed to start input stream");
 
     wait_for_enter_keypress("Press ENTER to finish recording");
-    event_loop.destroy_stream(input_stream_id);
     let mut audio = collect_samples(audio_spec, raw_samples_receiver);
     autocrop_audio(
         &mut audio,
@@ -75,35 +89,6 @@ fn wait_for_enter_keypress(message: &str) {
             error!("failed to get input: {}", error);
         }
     }
-}
-
-fn launch_cpal_thread<E>(event_loop: Arc<E>, raw_samples_sender: mpsc::Sender<f32>)
-where
-    E: EventLoopTrait + Send + Sync + 'static,
-{
-    thread::spawn(move || {
-        event_loop.run(move |_stream_id, stream_data| {
-            let buffer = match stream_data {
-                Ok(res) => match res {
-                    StreamData::Input {
-                        buffer: UnknownTypeInputBuffer::F32(buffer),
-                    } => buffer,
-                    _ => panic!("unexpected buffer type"),
-                },
-                Err(e) => {
-                    panic!("failed to fetch get audio stream: {:?}", e);
-                }
-            };
-            for sample in buffer.iter() {
-                match raw_samples_sender.send(*sample) {
-                    Err(e) => {
-                        error!("failed to send recorded sample: {}", e);
-                    }
-                    _ => (),
-                }
-            }
-        });
-    });
 }
 
 fn chunked_audio_power(audio: &Audio<f32>, bin_dur: Duration) -> Vec<(usize, f32)> {
