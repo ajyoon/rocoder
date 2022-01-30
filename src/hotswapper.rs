@@ -82,7 +82,7 @@ fn compile(path: &Path) -> Result<Library> {
     if !compile_output.status.success() {
         bail!("rustc compilation failed");
     }
-    Ok(Library::new(&build_target_path)?)
+    Ok(unsafe { Library::new(&build_target_path)? })
 }
 
 pub fn load_fn<'lib, T>(library: &'lib Library, symbol: &[u8]) -> Result<Symbol<'lib, T>> {

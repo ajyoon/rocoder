@@ -63,7 +63,7 @@ impl ReFFT {
         let mut rng = rand::thread_rng();
         let mut buf: Vec<Complex32> = fft_result
             .iter()
-            .map(|c| Complex32::new(0.0, rng.gen_range(0.0, TWO_PI)).exp() * c.norm())
+            .map(|c| Complex32::new(0.0, rng.gen_range(0.0..TWO_PI)).exp() * c.norm())
             .collect();
         self.inverse_fft.process(&mut buf);
         buf.iter()

@@ -226,21 +226,19 @@ impl InstallationProcessor {
 
     fn choose_window(&self) -> Vec<f32> {
         let size = self.config.window_sizes
-            [rand::thread_rng().gen_range(0, self.config.window_sizes.len())];
+            [rand::thread_rng().gen_range(0..self.config.window_sizes.len())];
         return windows::hanning(size);
     }
 
     fn choose_stretch_factor(&self) -> f32 {
-        return rand::thread_rng().gen_range(
-            self.config.min_stretch_factor,
-            self.config.max_stretch_factor,
-        );
+        return rand::thread_rng()
+            .gen_range(self.config.min_stretch_factor..self.config.max_stretch_factor);
     }
 
     fn choose_pause_between_events(&self) -> Duration {
         return Duration::from_secs_f32(rand::thread_rng().gen_range(
-            self.config.min_pause_between_events.as_secs_f32(),
-            self.config.max_pause_between_events.as_secs_f32(),
+            self.config.min_pause_between_events.as_secs_f32()
+                ..self.config.max_pause_between_events.as_secs_f32(),
         ));
     }
 
