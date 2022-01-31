@@ -6,7 +6,7 @@ Rocoder is a digital instrument command line program that transforms audio by sl
 
 - Change audio speed
 - Pitch shift (though only along harmonics and subharmonics)
-- Apply arbitrary code transformations to frequency-domain audio representations
+- Apply arbitrary code transformations to frequency-domain audio representations (Mac and Linux only)
 - Live compile and reload transformation code
 - Read and ~~write~~ audio files [audio output temporarily broken]
 - Do direct audio input and playback
@@ -30,6 +30,8 @@ The rocoder is a fairly naive, and probably not quite correct, [phase vocoder](h
 3. **Resynthesis**: The processed frequency domain buffers are then passed to an inverse FFT to be resynthesized. Resynthesis is done in such a way to allow both pitch shifting and speed changing.
 
 ## Live coding
+
+**Frequency kernels are only supported on Mac and Linux. Contributions to support Windows are welcome welcome.**
 
 Frequency kernels modify frequency-domain data before resynthesis, allowing you to perform very powerful transformations on your sounds. Kernels are defined in Rust files and must conform to the following signature:
 
@@ -62,6 +64,8 @@ If this is saved in a file `kernel.rs`, it can be used with:
 cargo run --release --bin rocoder -- \
     -r -f 1 --freq-kernel path/to/kernel.rs
 ```
+
+When the rocoder is running live and playing audio back (not writing to a file), it will watch this file for changes and automatically compile and hotswap it into the process on the fly. Simply edit the file and save to live code on your kernel!
 
 ## The library
 
