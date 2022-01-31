@@ -1,2 +1,0 @@
-* TODO support automatically sleeping during evening hours
-* TODO double check delay between activations
