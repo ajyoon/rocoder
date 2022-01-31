@@ -8,7 +8,7 @@ Rocoder is a digital instrument command line program that transforms audio by sl
 - Pitch shift (though only along harmonics and subharmonics)
 - Apply arbitrary code transformations to frequency-domain audio representations
 - Live compile and reload transformation code
-- Read and write audio files
+- Read and ~~write~~ audio files [audio output temporarily broken]
 - Do direct audio input and playback
 
 ## Installing
