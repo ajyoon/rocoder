@@ -66,6 +66,7 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
         NOISE_ANALYSIS_WINDOW_SIZE,
         NOISE_THRESHOLD_PERCENTILE,
     );
+    drop(input_stream);
     audio
 }
 

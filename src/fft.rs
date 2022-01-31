@@ -27,6 +27,7 @@ impl ReFFT {
         let mut planner = FftPlanner::new();
         let forward_fft = planner.plan_fft_forward(window_len);
         let inverse_fft = planner.plan_fft_inverse(window_len);
+        // TODO maybe need to block on the initial compilation?
         let kernel_recv = kernel_src.map(|src| hotswapper::hotswap(src).unwrap());
         ReFFT {
             forward_fft,

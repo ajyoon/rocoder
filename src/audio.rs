@@ -1,6 +1,6 @@
 use crate::math;
 use anyhow::Result;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use num_traits::Num;
 use std::ops::MulAssign;
 use std::time::Duration;
@@ -191,23 +191,29 @@ pub struct AudioBus {
     pub expected_total_samples: Option<usize>,
 }
 
+const INTO_AUDIO_DRAIN_TIMEOUT: Duration = Duration::from_millis(5);
+
 impl AudioBus {
     /// quick and dirty collapse into audio
     pub fn into_audio(self) -> Audio<f32> {
         assert!(self.channels.len() as u16 == self.spec.channels);
+        let mut out: Vec<Vec<f32>> = vec![vec![]; self.spec.channels as usize];
+        loop {
+            let mut disconnected_count = 0;
+            for (i, channel) in self.channels.iter().enumerate() {
+                match channel.recv_timeout(INTO_AUDIO_DRAIN_TIMEOUT) {
+                    Ok(chunk) => out[i].extend(chunk),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => disconnected_count += 1,
+                }
+            }
+            if disconnected_count == self.spec.channels {
+                break;
+            }
+        }
         Audio {
             spec: self.spec,
-            data: self
-                .channels
-                .into_iter()
-                .map(|rx| {
-                    let mut result = vec![];
-                    for chunk in rx {
-                        result.extend(chunk);
-                    }
-                    result
-                })
-                .collect(),
+            data: out,
         }
     }
 

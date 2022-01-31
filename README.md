@@ -8,7 +8,7 @@ Rocoder is a digital instrument command line program that transforms audio by sl
 - Pitch shift (though only along harmonics and subharmonics)
 - Apply arbitrary code transformations to frequency-domain audio representations (Mac and Linux only)
 - Live compile and reload transformation code
-- Read and ~~write~~ audio files [audio output temporarily broken]
+- Read and write audio files
 - Do direct audio input and playback
 
 ## Installing
@@ -31,7 +31,7 @@ The rocoder is a fairly naive, and probably not quite correct, [phase vocoder](h
 
 ## Live coding
 
-**Frequency kernels are only supported on Mac and Linux. Contributions to support Windows are welcome welcome.**
+**Frequency kernels are only supported on Mac and Linux. Contributions to support Windows are welcome.**
 
 Frequency kernels modify frequency-domain data before resynthesis, allowing you to perform very powerful transformations on your sounds. Kernels are defined in Rust files and must conform to the following signature:
 

@@ -1,25 +1,25 @@
-use rocoder::audio::{Audio, AudioSpec, AudioBus};
+use rocoder::audio::{Audio, AudioBus, AudioSpec};
 use rocoder::audio_files::{AudioReader, AudioWriter, WavReader, WavWriter};
 use rocoder::duration_parser;
+use rocoder::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
 use rocoder::recorder;
 use rocoder::runtime_setup;
+use rocoder::signal_flow::node::Node;
 use rocoder::stretcher::Stretcher;
-use rocoder::windows;
-use rocoder::signal_flow::node::{Node};
-use rocoder::player_processor::{AudioOutputProcessor, AudioOutputProcessorControlMessage};
 use rocoder::stretcher_processor::{StretcherProcessor, StretcherProcessorControlMessage};
+use rocoder::windows;
 
 use anyhow::Result;
-use ctrlc;
 use crossbeam_channel::unbounded;
+use ctrlc;
 
 use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
-use structopt::{clap::AppSettings, StructOpt};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
+use structopt::{clap::AppSettings, StructOpt};
 
 #[macro_use]
 extern crate log;
@@ -34,7 +34,7 @@ struct Opt {
         short = "b", 
         long = "buffer", 
         default_value = "1", 
-        parse(try_from_str = duration_parser::parse_duration), 
+        parse(try_from_str = duration_parser::parse_duration),
         help = "the maximum amount of audio to process ahead of time. this controls the response time to changes like kernel modifications.")]
     buffer_dur: Duration,
 
@@ -169,6 +169,9 @@ fn handle_result(
 ) -> Result<()> {
     match &opt.output {
         Some(path) => {
+            // This approach requires the entire audio output to fit
+            // in memory before we save it. Changes would be needed to
+            // stream output directly to disk.
             let output_audio = audio_bus.into_audio();
             let mut writer = WavWriter::open(path.to_str().unwrap(), output_audio.spec).unwrap();
             writer.write_into_channels(output_audio.data)?;
@@ -186,19 +189,21 @@ const PLAY_POLL: Duration = Duration::from_millis(500);
 
 fn play(bus: AudioBus, fade: Option<Duration>) {
     let player_node = Arc::new(Node::new(AudioOutputProcessor::new(bus.spec)));
-    player_node.send_control_message(AudioOutputProcessorControlMessage::ConnectBus {
-        fade,
-        bus,
-        id: 0,
-        shutdown_when_finished: true,
-
-    }).unwrap();
+    player_node
+        .send_control_message(AudioOutputProcessorControlMessage::ConnectBus {
+            fade,
+            bus,
+            id: 0,
+            shutdown_when_finished: true,
+        })
+        .unwrap();
     let quit_counter = Arc::new(AtomicU16::new(0));
     let player_node_clone = Arc::clone(&player_node);
     let quit_counter_clone = Arc::clone(&quit_counter);
     ctrlc::set_handler(move || {
         control_c_handler(&quit_counter_clone, Arc::clone(&player_node_clone));
-    }).unwrap();
+    })
+    .unwrap();
     loop {
         thread::sleep(PLAY_POLL);
         if player_node.is_finished() {
@@ -211,15 +216,21 @@ fn play(bus: AudioBus, fade: Option<Duration>) {
 
 const QUIT_FADE: Option<Duration> = Some(Duration::from_secs(3));
 
-fn control_c_handler(quit_counter: &Arc<AtomicU16>, node: Arc<Node<AudioOutputProcessor, AudioOutputProcessorControlMessage>>)
-{
+fn control_c_handler(
+    quit_counter: &Arc<AtomicU16>,
+    node: Arc<Node<AudioOutputProcessor, AudioOutputProcessorControlMessage>>,
+) {
     if quit_counter.fetch_add(1, Ordering::Relaxed) > 0 {
         // If ctrl-c was received more than once, quit without fading out
         println!("\nExiting immediately");
-        node.send_control_message(AudioOutputProcessorControlMessage::Shutdown { fade: None }).unwrap();
+        node.send_control_message(AudioOutputProcessorControlMessage::Shutdown { fade: None })
+            .unwrap();
         return;
     }
-    println!("\nGot quit signal, fading out audio for {:#?}", QUIT_FADE.unwrap());
-    node.send_control_message(AudioOutputProcessorControlMessage::Shutdown { fade: QUIT_FADE }).unwrap();
+    println!(
+        "\nGot quit signal, fading out audio for {:#?}",
+        QUIT_FADE.unwrap()
+    );
+    node.send_control_message(AudioOutputProcessorControlMessage::Shutdown { fade: QUIT_FADE })
+        .unwrap();
 }
-
