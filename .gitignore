@@ -3,6 +3,7 @@
 
 **/*.wav
 **/*.mp3
+**/*.ogg
 
 samples
 perf.data*

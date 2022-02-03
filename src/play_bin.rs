@@ -51,7 +51,7 @@ struct Opt {
 fn main() -> Result<()> {
     runtime_setup::setup_logging();
     let opt = Opt::from_args();
-    let mut audio: Audio<f32> = load_audio(&opt);
+    let mut audio: Audio = load_audio(&opt);
     audio.amplify_in_place(opt.amplitude);
     let spec = audio.spec;
     let player_node = Node::new(AudioOutputProcessor::new(spec));
@@ -68,7 +68,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_audio(opt: &Opt) -> Audio<f32> {
+fn load_audio(opt: &Opt) -> Audio {
     let mut audio = if opt.record {
         recorder::record_audio(&AudioSpec {
             channels: 2,

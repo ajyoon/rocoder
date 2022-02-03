@@ -6,62 +6,25 @@ use std::ops::MulAssign;
 use std::time::Duration;
 
 pub trait Sample: Sized + Num + Copy + MulAssign + Send + 'static {
+    fn from_i8(n: i8) -> Self;
     fn from_i16(n: i16) -> Self;
+    // Rust doesn't have i24, so this assumes the i24 has been stored in an i32
+    fn from_i24(n: i32) -> Self;
     fn from_i32(n: i32) -> Self;
-    fn from_f32(n: f32) -> Self;
-    fn from_f64(n: f64) -> Self;
-    fn into_f32(self) -> f32;
 }
 
-macro_rules! impl_sample_for_float {
-    ($type_name: ty) => {
-        impl Sample for $type_name {
-            fn from_i16(n: i16) -> Self {
-                n as $type_name / i16::max_value() as $type_name
-            }
-
-            fn from_i32(n: i32) -> Self {
-                n as $type_name / i32::max_value() as $type_name
-            }
-
-            fn from_f32(n: f32) -> Self {
-                n as $type_name
-            }
-
-            fn from_f64(n: f64) -> Self {
-                n as $type_name
-            }
-
-            fn into_f32(self) -> f32 {
-                self as f32
-            }
-        }
-    };
-}
-
-impl_sample_for_float!(f32);
-impl_sample_for_float!(f64);
-
-impl Sample for i16 {
+impl Sample for f32 {
+    fn from_i8(n: i8) -> Self {
+        n as f32 / i8::max_value() as f32
+    }
     fn from_i16(n: i16) -> Self {
-        n
+        n as f32 / i16::max_value() as f32
     }
-
+    fn from_i24(n: i32) -> Self {
+        n as f32 / 8388608.0
+    }
     fn from_i32(n: i32) -> Self {
-        // there is definitely a more efficient way to do this
-        ((n as f32 / i32::max_value() as f32) * i16::max_value() as f32) as i16
-    }
-
-    fn from_f32(n: f32) -> Self {
-        n as i16
-    }
-
-    fn from_f64(n: f64) -> Self {
-        n as i16
-    }
-
-    fn into_f32(self) -> f32 {
-        self as f32 / i16::max_value() as f32
+        n as f32 / i32::max_value() as f32
     }
 }
 
@@ -74,19 +37,13 @@ pub struct AudioSpec {
 }
 
 #[derive(Debug)]
-pub struct Audio<T>
-where
-    T: Sample,
-{
-    pub data: Vec<Vec<T>>,
+pub struct Audio {
+    pub data: Vec<Vec<f32>>,
     pub spec: AudioSpec,
 }
 
-impl<T> Audio<T>
-where
-    T: Sample,
-{
-    pub fn from_spec(spec: &AudioSpec) -> Audio<T> {
+impl Audio {
+    pub fn from_spec(spec: &AudioSpec) -> Audio {
         let data = (0..spec.channels).map(|_| Vec::new()).collect();
         Audio { data, spec: *spec }
     }
@@ -105,8 +62,7 @@ where
         }
     }
 
-    // todo really should be a float factor
-    pub fn amplify_in_place(&mut self, factor: T) {
+    pub fn amplify_in_place(&mut self, factor: f32) {
         for channel in self.data.iter_mut() {
             for i in 0..channel.len() {
                 channel[i] *= factor;
@@ -129,11 +85,10 @@ where
         }
         for channel in self.data.iter_mut() {
             for i in 0..start {
-                channel[i] = T::zero();
+                channel[i] = 0.0;
             }
             for p in 0..dur {
-                channel[start + p] *=
-                    T::from_f32(math::sqrt_interp(0.0, 1.0, p as f32 / dur as f32))
+                channel[start + p] *= math::sqrt_interp(0.0, 1.0, p as f32 / dur as f32)
             }
         }
     }
@@ -149,11 +104,10 @@ where
         }
         for channel in self.data.iter_mut() {
             for i in start + dur..channel.len() {
-                channel[i] = T::zero();
+                channel[i] = 0.0;
             }
             for p in 0..dur {
-                channel[start + p] *=
-                    T::from_f32(math::sqrt_interp(1.0, 0.0, p as f32 / dur as f32))
+                channel[start + p] *= math::sqrt_interp(1.0, 0.0, p as f32 / dur as f32)
             }
         }
     }
@@ -195,7 +149,7 @@ const INTO_AUDIO_DRAIN_TIMEOUT: Duration = Duration::from_millis(5);
 
 impl AudioBus {
     /// quick and dirty collapse into audio
-    pub fn into_audio(self) -> Audio<f32> {
+    pub fn into_audio(self) -> Audio {
         assert!(self.channels.len() as u16 == self.spec.channels);
         let mut out: Vec<Vec<f32>> = vec![vec![]; self.spec.channels as usize];
         loop {
@@ -217,7 +171,7 @@ impl AudioBus {
         }
     }
 
-    pub fn from_audio(audio: Audio<f32>) -> Self {
+    pub fn from_audio(audio: Audio) -> Self {
         let spec = audio.spec;
         let expected_total_samples = Some(audio.data[0].len());
         let channels: Vec<Receiver<Vec<f32>>> = audio
@@ -257,7 +211,7 @@ impl AudioBus {
         )
     }
 
-    pub fn collect_chunk(&mut self) -> Result<Audio<f32>> {
+    pub fn collect_chunk(&mut self) -> Result<Audio> {
         let mut chunk = Vec::with_capacity(self.spec.channels as usize);
         for channel_rx in &self.channels {
             chunk.push(channel_rx.recv()?);

@@ -6,13 +6,10 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read, Seek, Write};
 use std::iter::FromIterator;
-use std::marker::{PhantomData, Sized};
-use std::mem;
+use std::marker::Sized;
 
-pub trait AudioReader<T, R>: Iterator
+pub trait AudioReader<R>: Iterator<Item = f32>
 where
-    T: Sample,
-    <Self as std::iter::Iterator>::Item: Sample,
     R: Read,
 {
     /// Create a new decoding reader from an existing data reader.
@@ -30,12 +27,9 @@ where
 
     fn spec(&self) -> AudioSpec;
 
-    fn read_all(&mut self) -> Audio<<Self as std::iter::Iterator>::Item>
-    where
-        <Self as std::iter::Iterator>::Item: Sample,
-    {
+    fn read_all(&mut self) -> Audio {
         let num_channels = self.spec().channels as usize;
-        let mut channels: Vec<Vec<<Self as std::iter::Iterator>::Item>> = (0..num_channels)
+        let mut channels: Vec<Vec<f32>> = (0..num_channels)
             .map(|_| match self.duration() {
                 Some(dur) => Vec::with_capacity(dur as usize),
                 None => Vec::new(),
@@ -55,16 +49,15 @@ where
     }
 }
 
-pub trait AudioWriter<T, W>: Sized
+pub trait AudioWriter<W>: Sized
 where
-    T: Sample,
     W: Write + Seek,
 {
     fn new(writer: W, spec: AudioSpec) -> Result<Self>
     where
         Self: Sized;
 
-    fn write(&mut self, sample: T) -> Result<()>
+    fn write(&mut self, sample: f32) -> Result<()>
     where
         Self: Sized;
 
@@ -72,7 +65,7 @@ where
     where
         Self: Sized;
 
-    fn write_into_channels(&mut self, channels: Vec<Vec<T>>) -> Result<()> {
+    fn write_into_channels(&mut self, channels: Vec<Vec<f32>>) -> Result<()> {
         // Sanity check that each channel has the same length, and that there is at least one channel
         debug_assert!(HashSet::<usize>::from_iter(channels.iter().map(|c| c.len())).len() == 1);
         let samples_per_channel = channels.get(0).unwrap().len();
@@ -90,17 +83,14 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub struct WavReader<T, R> {
+pub struct WavReader<R> {
     pub spec: AudioSpec,
-    underlier: hound::WavIntoSamples<R, T>,
+    underlier: hound::WavReader<R>,
     duration: u32,
     num_samples: u32,
 }
 
-impl<T> WavReader<T, io::BufReader<fs::File>>
-where
-    T: Sample + hound::Sample,
-{
+impl WavReader<io::BufReader<fs::File>> {
     pub fn open(path: &str) -> Result<Self> {
         let file = fs::File::open(path)?;
         let reader = io::BufReader::new(file);
@@ -108,31 +98,7 @@ where
     }
 }
 
-impl<T, R> WavReader<T, R> {
-    fn validate_hound_reader(hound_wav_reader: &mut hound::WavReader<R>) -> Result<()>
-    where
-        T: Sample + hound::Sample,
-        R: Read,
-    {
-        let _first_sample_returned = hound_wav_reader
-            .samples::<T>()
-            .next()
-            .ok_or(anyhow!("could not read samples to validate reader"))?;
-
-        // I want to reset here so we don't just lose the first sample,
-        // but without managing a slow buffer or requiring the Seek trait
-        // (which otherwise is not necessary) we can't...so let's just drop it
-        // let _ = hound_wav_reader.seek(0);
-
-        // Since we tested one sample, we need to discard `channels - 1` samples as well
-        // to make sure we keep the interleaved channels oriented correctly.
-        for _ in 0..hound_wav_reader.spec().channels - 1 {
-            hound_wav_reader.samples::<T>().next();
-        }
-
-        Ok(())
-    }
-
+impl<R> WavReader<R> {
     fn validate_num_samples(num_samples: u32, channels: u16) -> Result<()> {
         return if num_samples % channels as u32 != 0 {
             Err(anyhow!(
@@ -146,27 +112,23 @@ impl<T, R> WavReader<T, R> {
     }
 }
 
-impl<T, R> AudioReader<T, R> for WavReader<T, R>
+impl<R> AudioReader<R> for WavReader<R>
 where
-    T: Sample + hound::Sample,
     R: Read,
 {
     fn new(reader: R) -> Result<Self>
     where
         Self: Sized,
     {
-        // TODO impl from for hound error
-        let mut hound_wav_reader = hound::WavReader::new(reader).unwrap();
-        Self::validate_hound_reader(&mut hound_wav_reader)?;
-        let hound_spec = hound_wav_reader.spec();
+        let underlier = hound::WavReader::new(reader)?;
+        let hound_spec = underlier.spec();
         let spec = AudioSpec {
             channels: hound_spec.channels,
             sample_rate: hound_spec.sample_rate,
         };
-        let duration = hound_wav_reader.duration();
-        let num_samples = hound_wav_reader.len();
+        let duration = underlier.duration();
+        let num_samples = underlier.len();
         Self::validate_num_samples(num_samples, spec.channels)?;
-        let underlier = hound_wav_reader.into_samples();
         Ok(WavReader {
             underlier,
             spec,
@@ -188,72 +150,68 @@ where
     }
 }
 
-impl<T, R> Iterator for WavReader<T, R>
+impl<R> Iterator for WavReader<R>
 where
-    T: Sample + hound::Sample,
     R: Read,
 {
-    type Item = T;
+    type Item = f32;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let result = self.underlier.next();
-        result.map(|s| s.unwrap())
+    fn next(&mut self) -> Option<f32> {
+        let format = (
+            self.underlier.spec().sample_format,
+            self.underlier.spec().bits_per_sample,
+        );
+        match format {
+            (hound::SampleFormat::Float, 32) => self.underlier.samples().next().map(|s| s.unwrap()),
+            (hound::SampleFormat::Int, 8) => self
+                .underlier
+                .samples()
+                .next()
+                .map(|s| f32::from_i8(s.unwrap())),
+            (hound::SampleFormat::Int, 16) => self
+                .underlier
+                .samples()
+                .next()
+                .map(|s| f32::from_i16(s.unwrap())),
+            (hound::SampleFormat::Int, 24) => self
+                .underlier
+                .samples()
+                .next()
+                .map(|s| f32::from_i24(s.unwrap())),
+            (hound::SampleFormat::Int, 32) => self
+                .underlier
+                .samples()
+                .next()
+                .map(|s| f32::from_i32(s.unwrap())),
+            _ => panic!("Cannot read unsupported .wav format: {:?}", format),
+        }
     }
 }
 
-pub struct WavWriter<T, W>
+pub struct WavWriter<W>
 where
     W: Seek + Write,
 {
     pub spec: AudioSpec,
     underlier: hound::WavWriter<W>,
-    _phantom: PhantomData<T>,
 }
 
-pub trait HoundSampleFormat<T> {
-    fn hound_sample_format() -> hound::SampleFormat;
-}
-
-macro_rules! impl_hound_sample_format {
-    ($type_name: ty, $hound_sample_format: path) => {
-        impl<W> HoundSampleFormat<$type_name> for WavWriter<$type_name, W>
-        where
-            W: Seek + Write,
-        {
-            fn hound_sample_format() -> hound::SampleFormat {
-                $hound_sample_format
-            }
-        }
-    };
-}
-
-impl_hound_sample_format!(f32, hound::SampleFormat::Float);
-impl_hound_sample_format!(i8, hound::SampleFormat::Int);
-impl_hound_sample_format!(i16, hound::SampleFormat::Int);
-impl_hound_sample_format!(i32, hound::SampleFormat::Int);
-
-impl<T, W> AudioWriter<T, W> for WavWriter<T, W>
+impl<W> AudioWriter<W> for WavWriter<W>
 where
-    Self: HoundSampleFormat<T>,
-    T: Sample + hound::Sample,
     W: Write + Seek,
 {
     fn new(writer: W, spec: AudioSpec) -> Result<Self> {
         let hound_spec = hound::WavSpec {
             channels: spec.channels,
             sample_rate: spec.sample_rate,
-            bits_per_sample: mem::size_of::<T>() as u16 * 8,
-            sample_format: Self::hound_sample_format(),
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
         };
         let underlier = hound::WavWriter::new(writer, hound_spec)?;
-        Ok(WavWriter {
-            spec,
-            underlier,
-            _phantom: PhantomData,
-        })
+        Ok(WavWriter { spec, underlier })
     }
 
-    fn write(&mut self, sample: T) -> Result<()>
+    fn write(&mut self, sample: f32) -> Result<()>
     where
         Self: Sized,
     {
@@ -268,11 +226,7 @@ where
     }
 }
 
-impl<T> WavWriter<T, io::BufWriter<fs::File>>
-where
-    Self: HoundSampleFormat<T>,
-    T: Sample + hound::Sample,
-{
+impl WavWriter<io::BufWriter<fs::File>> {
     pub fn open(path: &str, spec: AudioSpec) -> Result<Self> {
         let file = fs::File::create(path)?;
         let buf_writer = io::BufWriter::new(file);
@@ -282,17 +236,15 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub struct Mp3Reader<T, R> {
+pub struct Mp3Reader<R> {
     pub spec: AudioSpec,
     underlier: minimp3::Decoder<R>,
     buffer: Vec<i16>,
     buffer_i: usize,
-    _phantom: PhantomData<T>,
 }
 
-impl<T, R> AudioReader<T, R> for Mp3Reader<T, R>
+impl<R> AudioReader<R> for Mp3Reader<R>
 where
-    T: Sample,
     R: Read,
 {
     fn new(reader: R) -> Result<Self>
@@ -314,7 +266,6 @@ where
             underlier,
             buffer,
             buffer_i,
-            _phantom: PhantomData,
         })
     }
 
@@ -331,10 +282,7 @@ where
     }
 }
 
-impl<T> Mp3Reader<T, io::BufReader<fs::File>>
-where
-    T: Sample,
-{
+impl Mp3Reader<io::BufReader<fs::File>> {
     pub fn open(path: &str) -> Result<Self> {
         let file = fs::File::open(path)?;
         let reader = io::BufReader::new(file);
@@ -342,11 +290,12 @@ where
     }
 }
 
-impl<T, R> Mp3Reader<T, R>
+impl<R> Mp3Reader<R>
 where
-    T: Sample,
     R: Read,
 {
+    // TODO seems weird to use `unsafe` and manually implement the buffer here.
+    //      why not use a std::io::BufReader instead?
     fn next_i16_sample(&mut self) -> Option<i16> {
         if self.buffer_i < self.buffer.len() {
             let result = Some(unsafe { *self.buffer.get_unchecked(self.buffer_i) });
@@ -364,14 +313,13 @@ where
     }
 }
 
-impl<T, R> Iterator for Mp3Reader<T, R>
+impl<R> Iterator for Mp3Reader<R>
 where
-    T: Sample,
     R: Read,
 {
-    type Item = T;
+    type Item = f32;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next_i16_sample().map(T::from_i16)
+    fn next(&mut self) -> Option<f32> {
+        self.next_i16_sample().map(f32::from_i16)
     }
 }

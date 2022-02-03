@@ -67,7 +67,7 @@ fn f32_almost_eq(left: f32, right: f32) -> bool {
 }
 
 #[allow(unused)]
-pub fn generate_audio(fill_val: f32, len: usize, channels: u16, sample_rate: u32) -> Audio<f32> {
+pub fn generate_audio(fill_val: f32, len: usize, channels: u16, sample_rate: u32) -> Audio {
     let spec = AudioSpec {
         channels,
         sample_rate,

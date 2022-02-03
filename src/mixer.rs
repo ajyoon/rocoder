@@ -40,7 +40,7 @@ struct Layer {
     bus: AudioBus,
     amp_keyframes: Vec<Keyframe>,
     total_samples_played: usize,
-    buffer: Audio<f32>,
+    buffer: Audio,
     buffer_pos: usize,
     shutdown_when_finished: bool,
     last_status_report_instant: Instant,

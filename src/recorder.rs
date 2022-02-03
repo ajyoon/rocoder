@@ -6,7 +6,7 @@ use std::io;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::audio::{Audio, AudioSpec, Sample};
+use crate::audio::{Audio, AudioSpec};
 use crate::cpal_utils;
 use crate::power;
 
@@ -15,7 +15,7 @@ use crate::power;
 const NOISE_ANALYSIS_WINDOW_SIZE: Duration = Duration::from_millis(100);
 const NOISE_THRESHOLD_PERCENTILE: usize = 30;
 
-pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
+pub fn record_audio(audio_spec: &AudioSpec) -> Audio {
     // wait_for_enter_keypress("Press ENTER to start recording");
     let host = cpal::default_host();
     let (raw_samples_sender, raw_samples_receiver) = mpsc::channel::<f32>();
@@ -70,10 +70,7 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio<f32> {
     audio
 }
 
-fn collect_samples<T>(spec: &AudioSpec, raw_samples_receiver: mpsc::Receiver<T>) -> Audio<T>
-where
-    T: Sample,
-{
+fn collect_samples(spec: &AudioSpec, raw_samples_receiver: mpsc::Receiver<f32>) -> Audio {
     let mut audio = Audio::from_spec(&spec);
     for (i, sample) in raw_samples_receiver.try_iter().enumerate() {
         audio.data[i % spec.channels as usize].push(sample);
@@ -92,7 +89,7 @@ fn wait_for_enter_keypress(message: &str) {
     }
 }
 
-fn chunked_audio_power(audio: &Audio<f32>, bin_dur: Duration) -> Vec<(usize, f32)> {
+fn chunked_audio_power(audio: &Audio, bin_dur: Duration) -> Vec<(usize, f32)> {
     let bin_length = audio.duration_to_sample(bin_dur);
     let sample_dur = audio.data[0].len();
     let mut bins: Vec<(usize, f32)> =
@@ -115,7 +112,7 @@ fn chunked_audio_power(audio: &Audio<f32>, bin_dur: Duration) -> Vec<(usize, f32
 
 /// Analyze audio to determine when the recording subject begins and ends,
 /// and crop to fit it
-fn autocrop_audio(audio: &mut Audio<f32>, analysis_window: Duration, threshold_percentile: usize) {
+fn autocrop_audio(audio: &mut Audio, analysis_window: Duration, threshold_percentile: usize) {
     let amplitudes = chunked_audio_power(&audio, analysis_window);
     let autocrop_points = determine_autocrop_points(&amplitudes, threshold_percentile);
     if autocrop_points.is_none() {

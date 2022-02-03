@@ -25,9 +25,14 @@ use structopt::{clap::AppSettings, StructOpt};
 extern crate log;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "rocoder", setting = AppSettings::AllowNegativeNumbers)]
+#[structopt(name = "rocoder", setting = AppSettings::AllowNegativeNumbers, about = "A live-codeable phase vocoder. See https://github.com/ajyoon/rocoder for detailed docs.")]
 struct Opt {
-    #[structopt(short = "w", long = "window", default_value = "16384")]
+    #[structopt(
+        short = "w",
+        long = "window",
+        default_value = "16384",
+        help = "Processing window size"
+    )]
     window_len: usize,
 
     #[structopt(
@@ -35,19 +40,39 @@ struct Opt {
         long = "buffer", 
         default_value = "1", 
         parse(try_from_str = duration_parser::parse_duration),
-        help = "the maximum amount of audio to process ahead of time. this controls the response time to changes like kernel modifications.")]
+        help = "The maximum amount of audio to process ahead of time. this controls the response time to changes like kernel modifications.")]
     buffer_dur: Duration,
 
-    #[structopt(short = "f", long = "factor")]
+    #[structopt(
+        short = "f",
+        long = "factor",
+        default_value = "1",
+        help = "Stretch factor; e.g. 5 to slow 5x and 0.2 to speed up 5x"
+    )]
     factor: f32,
 
-    #[structopt(short = "p", long = "pitch_multiple", default_value = "1")]
+    #[structopt(
+        short = "p",
+        long = "pitch_multiple",
+        default_value = "1",
+        help = "A non-zero integer pitch multiplier."
+    )]
     pitch_multiple: i8,
 
-    #[structopt(short = "a", long = "amplitude", default_value = "1")]
+    #[structopt(
+        short = "a",
+        long = "amplitude",
+        default_value = "1",
+        help = "Output amplitude"
+    )]
     amplitude: f32,
 
-    #[structopt(short = "i", long = "input", parse(from_os_str))]
+    #[structopt(
+        short = "i",
+        long = "input",
+        parse(from_os_str),
+        help = "An audio file; currently supports .wav and .mp3"
+    )]
     input: Option<PathBuf>,
 
     #[structopt(
@@ -68,7 +93,7 @@ struct Opt {
         long = "fade",
         default_value = "1",
         parse(try_from_str = duration_parser::parse_duration),
-        help = "fade generated audio in and out for the given duration (hh:mm:ss.ss)")]
+        help = "Fade generated audio in and out for the given duration (hh:mm:ss.ss)")]
     fade: Duration,
 
     #[structopt(short = "r", long = "record", conflicts_with = "input")]
@@ -77,7 +102,7 @@ struct Opt {
     #[structopt(
         short = "s",
         long = "start",
-        help = "start time in input audio (hh:mm:ss.ss)",
+        help = "Start time in input audio (hh:mm:ss.ss)",
 	parse(try_from_str = duration_parser::parse_duration)
     )]
     start: Option<Duration>,
@@ -85,12 +110,17 @@ struct Opt {
     #[structopt(
         short = "d",
         long = "duration",
-        help = "duration to use from input audio, starting at start time if given (hh:mm:ss.ss)",
+        help = "Duration to use from input audio, starting at start time if given (hh:mm:ss.ss)",
 	parse(try_from_str = duration_parser::parse_duration)
     )]
     duration: Option<Duration>,
 
-    #[structopt(short = "o", long = "output", parse(from_os_str))]
+    #[structopt(
+        short = "o",
+        long = "output",
+        parse(from_os_str),
+        help = "Output .wav file path. Uses 32-bit float."
+    )]
     output: Option<PathBuf>,
 }
 
@@ -132,7 +162,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_audio(opt: &Opt) -> Audio<f32> {
+fn load_audio(opt: &Opt) -> Audio {
     let mut audio = if opt.record {
         recorder::record_audio(&AudioSpec {
             channels: 2,
