@@ -8,6 +8,8 @@ description = "A live-codeable phase vocoder"
 license = "CC0-1.0"
 keywords = ["audio", "synthesizer", "live-code"]
 categories = ["multimedia::audio"]
+homepage = "https://github.com/ajyoon/rocoder"
+readme = "README.md"
 
 [lib]
 name = "rocoder"
