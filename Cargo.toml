@@ -4,7 +4,10 @@ version = "0.1.0"
 authors = ["Andrew Yoon <andrew@nothing-to-say.org>"]
 repository = "https://github.com/ajyoon/rocoder"
 edition = "2021"
-license = "CC0 1.0 Universal"
+description = "A live-codeable phase vocoder"
+license = "CC0-1.0"
+keywords = ["audio", "synthesizer", "live-code"]
+categories = ["multimedia::audio"]
 
 [lib]
 name = "rocoder"
