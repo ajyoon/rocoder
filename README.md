@@ -14,8 +14,8 @@ Rocoder is a digital instrument command line program that transforms audio by sl
 ## Installing
 
 1. If you don't have it, install a Rust toolchain at https://rustup.rs/
-2. Download or clone this repository
-3. From within the project, run `cargo run --release -- -h` to compile and print the help dialog.
+2. Install this tool by running `cargo install rocoder`
+3. Run `rocoder -h` to get started!
 
 ## Usage
 
