@@ -15,7 +15,7 @@ Rocoder is a digital instrument command line program that transforms audio by sl
 
 1. If you don't have it, install a Rust toolchain at https://rustup.rs/
 2. Download or clone this repository
-3. From within the project, run `cargo run --release --bin rocoder -- -h` to compile and print the help dialog.
+3. From within the project, run `cargo run --release -- -h` to compile and print the help dialog.
 
 ## Usage
 
@@ -61,7 +61,7 @@ pub fn apply(elapsed_ms: usize, input: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
 If this is saved in a file `kernel.rs`, it can be used with:
 
 ```sh
-cargo run --release --bin rocoder -- \
+cargo run --release -- \
     -r -f 1 --freq-kernel path/to/kernel.rs
 ```
 
