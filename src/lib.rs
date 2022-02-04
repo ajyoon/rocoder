@@ -1,7 +1,3 @@
-#![feature(test)]
-#![feature(div_duration)]
-#![feature(drain_filter)]
-
 #[macro_use]
 extern crate log;
 

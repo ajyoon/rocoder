@@ -87,7 +87,8 @@ impl Layer {
                 let total_dur = Duration::from_secs_f32(
                     expected_total_samples as f32 / self.bus.spec.sample_rate as f32,
                 );
-                let percent_played = (played_dur.div_duration_f32(total_dur) * 100.0) as u16;
+                let percent_played =
+                    ((played_dur.as_secs_f32() / total_dur.as_secs_f32()) * 100.0) as u16;
                 // TODO make this include how long left in minutes & seconds
                 info!(
                     "Played {}s of {}s ~ {}%",
@@ -124,8 +125,7 @@ impl Layer {
     }
 
     fn clear_keyframes_after(&mut self, sample_pos: usize) {
-        self.amp_keyframes
-            .drain_filter(|k| k.sample_pos > sample_pos);
+        self.amp_keyframes.retain(|k| k.sample_pos <= sample_pos);
     }
 
     #[inline]

@@ -69,7 +69,7 @@ When the rocoder is running live and playing audio back (not writing to a file),
 
 ## The library
 
-Various pieces of functionality from this tool are exposed in a crate library, but this API is highly unstable and expected to have major breaking changes soon.
+Various pieces of functionality from this tool are exposed in a crate library, but this API is currently undocumented and very unstable.
 
 ## Credits
 

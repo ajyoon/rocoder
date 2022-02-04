@@ -2,6 +2,7 @@
 name = "rocoder"
 version = "0.1.0"
 authors = ["Andrew Yoon <andrew@nothing-to-say.org>"]
+repository = "https://github.com/ajyoon/rocoder"
 edition = "2021"
 
 [lib]
@@ -23,7 +24,6 @@ structopt = "^0.3.26"
 minimp3 = "^0.5.1"
 cpal = "^0.13"
 libc = "^0.2.116"
-pbr = "^1.0.4"
 ctrlc = "^3.2.1"
 anyhow = "^1.0"
 libloading = "^0.7"
