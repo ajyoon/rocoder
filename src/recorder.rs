@@ -61,6 +61,7 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio {
 
     wait_for_enter_keypress("Press ENTER to finish recording");
     let mut audio = collect_samples(audio_spec, raw_samples_receiver);
+    auto_split_mono(&mut audio);
     autocrop_audio(
         &mut audio,
         NOISE_ANALYSIS_WINDOW_SIZE,
@@ -108,6 +109,37 @@ fn chunked_audio_power(audio: &Audio, bin_dur: Duration) -> Vec<(usize, f32)> {
         bins.push((bin_start_sample, *bin_amplitude));
     }
     bins
+}
+
+/// If signal is only detected in a single channel, copy it to the other channels
+///
+/// This corrects for common situations when mono input is given on a stereo devices
+fn auto_split_mono(audio: &mut Audio) {
+    let mut n_empty_channels = 0;
+    let mut last_nonempty_channel: Option<usize> = None;
+    for (i, channel_data) in audio.data.iter().enumerate() {
+        if channel_data.iter().all(|s| *s == 0.0) {
+            n_empty_channels += 1;
+        } else {
+            last_nonempty_channel = Some(i);
+        }
+    }
+    if !(n_empty_channels == audio.data.len() - 1 && last_nonempty_channel.is_some()) {
+        return;
+    }
+    let mono_channel_idx = last_nonempty_channel.unwrap();
+    // This could be done faster without cloning, but I can't find a
+    // way that's not awkward.
+    let mono_channel_data = audio.data[mono_channel_idx].clone();
+
+    info!("Detected mono input from non-mono device. Automatically splitting.");
+
+    for (i, channel_data) in audio.data.iter_mut().enumerate() {
+        if i == mono_channel_idx {
+            continue;
+        }
+        channel_data.copy_from_slice(mono_channel_data.as_slice());
+    }
 }
 
 /// Analyze audio to determine when the recording subject begins and ends,
@@ -161,6 +193,17 @@ fn determine_autocrop_points(
 mod test {
     use super::*;
     use crate::test_utils::*;
+
+    #[test]
+    fn test_auto_split_mono() {
+        let mut audio = generate_audio(0.0, 5, 2, 1);
+        let expected_value = vec![0.0, 1.0, 0.1, -1.0, 0.0];
+        audio.data[0] = expected_value.clone();
+        audio.data[1] = vec![0.0; 5];
+        auto_split_mono(&mut audio);
+        assert_almost_eq_by_element(audio.data[0].clone(), expected_value.clone());
+        assert_almost_eq_by_element(audio.data[1].clone(), expected_value);
+    }
 
     #[test]
     fn test_chunked_audio_power() {
