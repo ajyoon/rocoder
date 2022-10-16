@@ -1,6 +1,6 @@
 [package]
 name = "rocoder"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Andrew Yoon <andrew@nothing-to-say.org>"]
 repository = "https://github.com/ajyoon/rocoder"
 edition = "2021"
