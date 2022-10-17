@@ -71,7 +71,7 @@ struct Opt {
         short = "i",
         long = "input",
         parse(from_os_str),
-        help = "An audio file; currently supports .wav and .mp3"
+        help = "An audio file; currently supports .wav and .mp3. Use '-' for stdin. Omit this option to record audio from your default sound input device."
     )]
     input: Option<PathBuf>,
 
@@ -95,9 +95,6 @@ struct Opt {
         parse(try_from_str = duration_parser::parse_duration),
         help = "Fade generated audio in and out for the given duration (hh:mm:ss.ss)")]
     fade: Duration,
-
-    #[structopt(short = "r", long = "record", conflicts_with = "input")]
-    record: bool,
 
     #[structopt(
         short = "s",
@@ -163,22 +160,20 @@ fn main() -> Result<()> {
 }
 
 fn load_audio(opt: &Opt) -> Audio {
-    let mut audio = if opt.record {
-        recorder::record_audio(&AudioSpec {
-            channels: 2,
-            sample_rate: 44100,
-        })
-    } else {
-        match &opt.input {
-            Some(path) => {
+    let mut audio = match &opt.input {
+        Some(path) => {
+            if path.to_str() == Some("-") {
+                let mut reader = WavReader::new(io::stdin()).unwrap();
+                reader.read_all()
+            } else {
                 let mut reader = WavReader::open(path.to_str().unwrap()).unwrap();
                 reader.read_all()
             }
-            None => {
-                let mut reader = WavReader::new(io::stdin()).unwrap();
-                reader.read_all()
-            }
         }
+        None => recorder::record_audio(&AudioSpec {
+            channels: 2,
+            sample_rate: 44100,
+        }),
     };
 
     if opt.start.is_some() || opt.duration.is_some() {
