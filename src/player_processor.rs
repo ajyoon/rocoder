@@ -75,6 +75,7 @@ impl AudioOutputProcessor {
                 move |err| {
                     panic!("audio output stream failed: {:?}", err);
                 },
+                None,
             )
             .expect("failed to build output stream");
         output_stream.play().expect("failed to start output stream");

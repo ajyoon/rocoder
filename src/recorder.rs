@@ -55,6 +55,7 @@ pub fn record_audio(audio_spec: &AudioSpec) -> Audio {
             move |err| {
                 panic!("audio input stream failed: {:?}", err);
             },
+            None,
         )
         .expect("failed to build input stream");
     input_stream.play().expect("failed to start input stream");
